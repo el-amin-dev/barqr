@@ -140,7 +140,11 @@ func Decode(r *http.Request, defaultSymbology string) (Request, error) {
 // fields it actually sets. It is what lets a preset supply the baseline and
 // the request override it, using one decoder rather than two.
 func decodeOver(r *http.Request, req *Request) error {
-	if err := applyValues(req, r.URL.Query()); err != nil {
+	query, err := parseQuery(r.URL.RawQuery)
+	if err != nil {
+		return err
+	}
+	if err := applyValues(req, query); err != nil {
 		return err
 	}
 
@@ -148,8 +152,8 @@ func decodeOver(r *http.Request, req *Request) error {
 		return nil
 	}
 
-	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
-	if err != nil && r.Header.Get("Content-Type") != "" {
+	mediaType, _, mediaErr := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if mediaErr != nil && r.Header.Get("Content-Type") != "" {
 		return newFault(http.StatusUnsupportedMediaType, CodeBadRequest,
 			"unparseable Content-Type header")
 	}
@@ -233,6 +237,30 @@ func applyJSON(req *Request, body io.Reader) error {
 			"body contains more than one JSON value")
 	}
 	return nil
+}
+
+// parseQuery parses the raw query string, reporting what net/url swallows.
+//
+// http.Request.Query discards its error and returns whatever it managed to
+// parse. Since Go 1.17 a bare ";" is rejected as a separator, so a perfectly
+// reasonable `?style.logo=data:image/png;base64,...` loses that parameter and
+// every one after it, and the caller gets a plain code back with no logo and
+// no explanation. Silently dropping an option is the failure this service
+// refuses everywhere else, so it is refused here too.
+func parseQuery(raw string) (url.Values, error) {
+	values, err := url.ParseQuery(raw)
+	if err == nil {
+		return values, nil
+	}
+
+	f := newFault(http.StatusBadRequest, CodeBadRequest, "the query string could not be parsed")
+	if strings.Contains(err.Error(), "semicolon") {
+		f.Message = "a semicolon in the query string is not a parameter separator, " +
+			"and everything after it was dropped"
+		f.Hint = "percent-encode it as %3B — a data: URI needs this — or send the " +
+			"request as a JSON body instead"
+	}
+	return nil, f
 }
 
 // strictJSON decodes exactly one JSON value into v, rejecting unknown fields

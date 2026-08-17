@@ -12,6 +12,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -80,16 +81,15 @@ Run "barqr check-config" to see the effective configuration.
 // cmdServe runs the HTTP server until SIGINT or SIGTERM, then drains.
 func cmdServe(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
-	fs.SetOutput(stderr)
 	printConfig := fs.Bool("print-config", false,
 		"print the effective configuration with secrets redacted, then exit")
-	if err := fs.Parse(args); err != nil {
-		return exitUsage
+	if code, done := parseFlags(fs, args, stdout, stderr); done {
+		return code
 	}
 
 	cfg, warns, err := config.Load(os.Environ())
 	if err != nil {
-		reportConfigError(stderr, err)
+		reportConfigError(stderr, warns, err)
 		return exitFailure
 	}
 
@@ -118,19 +118,52 @@ func cmdServe(args []string, stdout, stderr io.Writer) int {
 	return exitOK
 }
 
+// parseFlags parses a subcommand's flags, distinguishing an explicit help
+// request from a mistake.
+//
+// flag.ContinueOnError returns ErrHelp for -h, and treating that as a usage
+// error meant `barqr serve --help` exited 2 and wrote to stderr while
+// `barqr help` exited 0 and wrote to stdout — the same question answered two
+// different ways depending on which spelling you reached for.
+//
+// The flag package writes usage during Parse, so its output is discarded and
+// reprinted here once the outcome is known: help belongs on stdout, a mistake
+// on stderr.
+//
+// done reports whether the caller should return code immediately.
+func parseFlags(fs *flag.FlagSet, args []string, stdout, stderr io.Writer) (code int, done bool) {
+	fs.SetOutput(io.Discard)
+
+	err := fs.Parse(args)
+	switch {
+	case err == nil:
+		return exitOK, false
+
+	case errors.Is(err, flag.ErrHelp):
+		fs.SetOutput(stdout)
+		fs.Usage()
+		return exitOK, true
+
+	default:
+		fs.SetOutput(stderr)
+		fmt.Fprintf(stderr, "barqr: %s\n\n", err)
+		fs.Usage()
+		return exitUsage, true
+	}
+}
+
 // cmdCheckConfig validates the environment without binding a port. It is the
 // twelve-factor admin process: safe to run in an init container or a CI job to
 // catch a bad deployment before it takes traffic.
 func cmdCheckConfig(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("check-config", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	if err := fs.Parse(args); err != nil {
-		return exitUsage
+	if code, done := parseFlags(fs, args, stdout, stderr); done {
+		return code
 	}
 
 	cfg, warns, err := config.Load(os.Environ())
 	if err != nil {
-		reportConfigError(stderr, err)
+		reportConfigError(stderr, warns, err)
 		return exitFailure
 	}
 
@@ -142,18 +175,30 @@ func cmdCheckConfig(args []string, stdout, stderr io.Writer) int {
 }
 
 // reportConfigError prints configuration failures as plain lines on stderr.
+//
 // The structured logger is deliberately not used: its level and format come
 // from the very configuration that failed to parse.
-func reportConfigError(stderr io.Writer, err error) {
+//
+// Warnings are printed alongside the errors rather than discarded. The whole
+// point of aggregating problems is that an operator sees all of them in one
+// boot, and a typo that made a variable be ignored is exactly the kind of
+// thing they need to know about while they are already editing the file.
+func reportConfigError(stderr io.Writer, warns []string, err error) {
 	fmt.Fprintln(stderr, "barqr: configuration error, refusing to start")
 	for _, line := range splitJoined(err) {
 		fmt.Fprintf(stderr, "  - %s\n", line)
+	}
+	for _, w := range warns {
+		fmt.Fprintf(stderr, "  - warning: %s\n", w)
 	}
 }
 
 // splitJoined unwraps the errors.Join tree produced by config.Load into one
 // line per problem.
 func splitJoined(err error) []string {
+	if err == nil {
+		return nil
+	}
 	if joined, ok := err.(interface{ Unwrap() []error }); ok { //nolint:errorlint // inspecting this node, not the chain
 		var out []string
 		for _, e := range joined.Unwrap() {

@@ -302,3 +302,134 @@ func TestRedactedHidesKeys(t *testing.T) {
 		}
 	}
 }
+
+// TestKeysCoversTheWholeSpec guards the list the documentation is checked
+// against: a variable missing from Keys is a variable internal/doccheck cannot
+// notice is undocumented.
+func TestKeysCoversTheWholeSpec(t *testing.T) {
+	t.Parallel()
+
+	keys := config.Keys()
+	if len(keys) < 20 {
+		t.Fatalf("Keys() returned %d entries, which is fewer than the documented set", len(keys))
+	}
+
+	seen := make(map[string]bool, len(keys))
+	for _, k := range keys {
+		if !strings.HasPrefix(k, config.Prefix) {
+			t.Errorf("Keys() returned %q, which is outside the %s namespace", k, config.Prefix)
+		}
+		if seen[k] {
+			t.Errorf("Keys() returned %q twice", k)
+		}
+		seen[k] = true
+	}
+
+	// Every key must round-trip through Redacted, which is the other consumer
+	// of the same table.
+	cfg, _, err := config.Load(nil)
+	if err != nil {
+		t.Fatalf("Load() returned error: %v", err)
+	}
+	redacted := cfg.Redacted()
+	for _, k := range keys {
+		if !strings.Contains(redacted, k+"=") {
+			t.Errorf("Redacted() omits %s", k)
+		}
+	}
+}
+
+// TestUnimplementedOptionsWarn is the honesty check. Both of these variables
+// parse and validate and then have no feature behind them; accepting one
+// silently is exactly the failure mode barqr refuses everywhere else.
+func TestUnimplementedOptionsWarn(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		env   map[string]string
+		want  string
+		quiet bool
+	}{
+		{
+			// Remote fetching is implemented, but the allowlist is exact-match
+			// and deny-by-default, so switching the feature on without naming
+			// a host reaches nothing. That is safe, and almost certainly not
+			// what the operator meant.
+			name: "remote fetch enabled with no allowlist",
+			env:  map[string]string{"BARQR_ALLOW_REMOTE_FETCH": "true"},
+			want: "BARQR_FETCH_ALLOWLIST",
+		},
+		{
+			name: "remote fetch with an allowlist is silent",
+			env: map[string]string{
+				"BARQR_ALLOW_REMOTE_FETCH": "true",
+				"BARQR_FETCH_ALLOWLIST":    "cdn.example",
+			},
+			quiet: true,
+		},
+		{
+			name: "dynamic module",
+			env:  map[string]string{"BARQR_DYNAMIC": "true"},
+			want: "BARQR_DYNAMIC",
+		},
+		{
+			name:  "neither, by default",
+			env:   nil,
+			quiet: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, warns, err := config.Load(env(tt.env))
+			if err != nil {
+				t.Fatalf("Load() returned error: %v", err)
+			}
+
+			joined := strings.Join(warns, "\n")
+			switch {
+			case tt.quiet && joined != "":
+				t.Errorf("warnings = %q, want none on a default configuration", joined)
+			case !tt.quiet && !strings.Contains(joined, tt.want):
+				t.Errorf("warnings = %q, want one naming %s", joined, tt.want)
+			}
+		})
+	}
+}
+
+// TestOpenAuthOnAnyRoutableBindIsFatal covers the widened invariant: it used to
+// fire only on a wildcard, so BARQR_BIND=10.0.1.7 with open auth booted
+// unauthenticated on the LAN without a word.
+func TestOpenAuthOnAnyRoutableBindIsFatal(t *testing.T) {
+	t.Parallel()
+
+	for _, bind := range []string{"0.0.0.0", "::", "10.0.1.7", "192.168.1.4", "2001:db8::1"} {
+		t.Run(bind, func(t *testing.T) {
+			t.Parallel()
+
+			_, _, err := config.Load(env(map[string]string{
+				"BARQR_BIND": bind, "BARQR_AUTH_MODE": "open",
+			}))
+			if !errors.Is(err, config.ErrInsecure) {
+				t.Fatalf("Load(bind=%s, auth=open) error = %v, want %v",
+					bind, err, config.ErrInsecure)
+			}
+		})
+	}
+}
+
+// TestBindIsTrimmed guards the one value that used to skip TrimSpace: a stray
+// space made it neither loopback nor wildcard, slipping past the invariants.
+func TestBindIsTrimmed(t *testing.T) {
+	t.Parallel()
+
+	_, _, err := config.Load(env(map[string]string{
+		"BARQR_BIND": " 0.0.0.0 ", "BARQR_AUTH_MODE": "open",
+	}))
+	if !errors.Is(err, config.ErrInsecure) {
+		t.Fatalf("a padded wildcard bind slipped past the security invariant: %v", err)
+	}
+}

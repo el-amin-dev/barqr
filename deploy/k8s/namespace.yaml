@@ -1,0 +1,25 @@
+# A dedicated namespace is not bureaucracy here: it is the boundary the
+# NetworkPolicy in networkpolicy.yaml is written against. A bare podSelector
+# matches within one namespace, so "which pods may call barqr" is only a
+# meaningful question once barqr has a namespace of its own.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: barqr
+  labels:
+    app.kubernetes.io/name: barqr
+    app.kubernetes.io/part-of: barqr
+
+    # Pod Security Admission, enforced by the API server rather than by review.
+    # barqr already satisfies `restricted` — non-root, no capabilities, no
+    # privilege escalation, RuntimeDefault seccomp — so enforcing it here costs
+    # nothing today and rejects the pod on the day someone loosens the
+    # securityContext in deployment.yaml. `warn` and `audit` are pinned to the
+    # same level so a violation is visible on `kubectl apply` and in the audit
+    # log, not only at admission time.
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/audit-version: latest

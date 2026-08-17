@@ -1,0 +1,323 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: barqr
+  labels:
+    app.kubernetes.io/name: barqr
+    app.kubernetes.io/instance: barqr
+    app.kubernetes.io/component: renderer
+    app.kubernetes.io/part-of: barqr
+spec:
+  # Stateless: no leader election, no sticky sessions, no shared volume, no
+  # coordination of any kind between replicas. Three is the smallest count that
+  # survives one node failure *and* one voluntary disruption at the same time,
+  # which is what makes the PodDisruptionBudget at the bottom of this file
+  # satisfiable during a node drain.
+  replicas: 3
+
+  # These two labels are the identity the Service and the NetworkPolicy select
+  # on. Keep them minimal: spec.selector is immutable after creation, so
+  # anything that changes per release (notably app.kubernetes.io/version)
+  # must NOT appear here or the next version bump needs the Deployment deleted
+  # and recreated.
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: barqr
+      app.kubernetes.io/instance: barqr
+
+  # maxUnavailable: 0 means capacity never dips below three during a rollout —
+  # a new pod must pass its readiness probe before an old one is asked to stop.
+  # With a 4 ms request that costs a few seconds of extra surge and removes the
+  # rollout as a source of 503s.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+
+  revisionHistoryLimit: 3
+
+  # A pod that has not gone ready in five minutes is not going to; fail the
+  # rollout rather than leaving `kubectl rollout status` hanging in CI.
+  progressDeadlineSeconds: 300
+
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: barqr
+        app.kubernetes.io/instance: barqr
+        app.kubernetes.io/component: renderer
+        app.kubernetes.io/part-of: barqr
+    spec:
+      # barqr never talks to the Kubernetes API. Mounting a token would hand a
+      # compromised renderer a cluster credential for no reason at all.
+      automountServiceAccountToken: false
+
+      # Strictly greater than BARQR_SHUTDOWN_GRACE (20s, set below) — this is
+      # the pairing that gets broken most often and it costs you a handful of
+      # dropped requests on *every* rollout, which is exactly the kind of error
+      # that never shows up in staging.
+      #
+      # The sequence on a delete: kubelet sends SIGTERM and, in parallel, the
+      # endpoints controller starts removing this pod from the Service. barqr
+      # answers /v1/readyz with 503 immediately, keeps serving in-flight and
+      # newly-arrived requests, and drains for up to BARQR_SHUTDOWN_GRACE
+      # before exiting. The kubelet SIGKILLs at terminationGracePeriodSeconds
+      # regardless of what the process is doing.
+      #
+      # So this value must cover: endpoint propagation across every kube-proxy
+      # (a second or three) + the drain window (20s) + slack. 30s does; the
+      # default 30s happens to be right here only because the drain was chosen
+      # to fit inside it. Raise BARQR_SHUTDOWN_GRACE and you must raise this
+      # one first, or the kubelet kills the process mid-drain and the drain
+      # window becomes a lie.
+      terminationGracePeriodSeconds: 30
+
+      # Pod-level context: inherited by every container, so a future sidecar
+      # cannot quietly run as root.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        # No volumes are mounted, so there is nothing for fsGroup to chown.
+        seccompProfile:
+          type: RuntimeDefault
+
+      # One replica per node. barqr's failure domain is the node — a kernel
+      # panic or a drain takes every pod on it — and with three replicas and
+      # DoNotSchedule the scheduler refuses to co-locate rather than silently
+      # putting two eggs in one basket.
+      #
+      # On a cluster with fewer than three schedulable nodes this leaves pods
+      # Pending, which is the honest outcome: either add nodes or change
+      # whenUnsatisfiable to ScheduleAnyway and accept that a node loss can
+      # take two thirds of the fleet.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: barqr
+              app.kubernetes.io/instance: barqr
+        # Best-effort spread across zones on top of the hard per-node rule:
+        # a single-zone cluster (or a node pool with no zone label) must not
+        # block scheduling, hence ScheduleAnyway.
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: barqr
+              app.kubernetes.io/instance: barqr
+
+      containers:
+        - name: barqr
+          # Pinned by tag for readability; kustomization.yaml is where the tag
+          # is actually set. Pin by digest for production —
+          #   image: ghcr.io/el-amin-dev/barqr@sha256:<digest>
+          # — so that a node pulling the image tomorrow gets the same bytes
+          # that were reviewed today.
+          image: barqr:dev
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+
+          env:
+            # 0.0.0.0 binds the pod's own network namespace. Reachability is
+            # decided by the Service and the NetworkPolicy, not by this value.
+            - name: BARQR_BIND
+              value: "0.0.0.0"
+            - name: BARQR_PORT
+              value: "3000"
+
+            # Never inline a key here: env in a Deployment is world-readable to
+            # anyone with `get deployments` and lands in `kubectl describe`,
+            # in git, and in every CI log that echoes the manifest. See
+            # secret.example.yaml for how to create the Secret.
+            - name: BARQR_API_KEYS
+              valueFrom:
+                secretKeyRef:
+                  name: barqr-api-keys
+                  key: api-keys
+                  # The pod must not start without it. barqr would refuse to
+                  # boot anyway (wildcard bind + required auth + no keys is
+                  # startup-fatal), but failing at the kubelet with
+                  # CreateContainerConfigError names the missing Secret,
+                  # whereas a CrashLoopBackOff makes you go and read logs.
+                  optional: false
+            - name: BARQR_AUTH_MODE
+              value: "required"
+
+            # Per-key, per-process. Three replicas behind one Service means the
+            # effective ceiling is 3x this, since there is no shared limiter.
+            - name: BARQR_RATE_LIMIT
+              value: "600/min"
+            # Bounds in-process parallelism so a burst queues rather than
+            # thrashes, and bounds worst-case memory: see the resources block.
+            - name: BARQR_CONCURRENCY
+              value: "8"
+            - name: BARQR_REQUEST_TIMEOUT
+              value: "10s"
+
+            # The 25,000,000 default permits a single request to ask for a
+            # 100 MB pixel buffer (4 bytes per pixel, NRGBA) — eight of those
+            # in flight is 800 MB and an OOMKill under the limit below. 4 MP
+            # caps one render at 16 MB and the whole semaphore at 128 MB.
+            # This number and resources.limits.memory move together.
+            - name: BARQR_MAX_CANVAS_PX
+              value: "4000000"
+
+            # Must stay strictly below terminationGracePeriodSeconds above.
+            - name: BARQR_SHUTDOWN_GRACE
+              value: "20s"
+
+            - name: BARQR_LOG_FORMAT
+              value: "json"
+            - name: BARQR_LOG_LEVEL
+              value: "info"
+
+            # Prometheus endpoint at /metrics. It sits behind the API key, so a
+            # scrape config needs the same Secret — annotating this pod for
+            # scraping without that will only ever collect 401s.
+            - name: BARQR_METRICS
+              value: "true"
+
+            # No browser reaches a ClusterIP. The docs UI is HTML surface with
+            # no audience here.
+            - name: BARQR_DOCS
+              value: "false"
+
+            # A Go runtime variable, not a barqr one: it tells the GC to keep
+            # the heap under a soft ceiling below the cgroup limit, so pressure
+            # turns into more GC rather than an OOMKill (the kernel gives Go no
+            # warning and no chance to shed load). Set to ~80% of
+            # resources.limits.memory, leaving room for stacks and the runtime's
+            # own off-heap allocations.
+            - name: GOMEMLIMIT
+              value: "200MiB"
+
+          # Sizing, from `make bench` on an i7-1265U (README): a full HTTP
+          # round trip to PNG is 4.0 ms, the render step itself 2.2 us and
+          # ~2 MB of transient allocation, and boot is under 100 ms.
+          #
+          # CPU request 100m: at 4 ms of CPU per code, a tenth of a core
+          # sustains ~25 codes/s per replica, ~75/s across three — comfortably
+          # above the 10/s the rate limit above allows one key. The request is
+          # only the scheduler's reservation; bursts above it are served from
+          # whatever the node has spare.
+          #
+          # There is deliberately NO cpu limit. A limit is enforced by CFS
+          # throttling in 100 ms slices, which on a 4 ms request path turns a
+          # brief burst into multi-hundred-millisecond tail latency for no
+          # protective benefit: BARQR_CONCURRENCY already bounds how much work
+          # this process will do at once, and that bound is a semaphore rather
+          # than a stall.
+          #
+          # Memory request 96Mi: ~20 MB of Go runtime and static binary plus
+          # normal working set, with room to be scheduled honestly. Limit
+          # 256Mi: worst case is 8 concurrent renders at the 4 MP cap above
+          # (8 x 16 MB = 128 MB of pixel buffers) plus the encode buffer and
+          # the runtime. Because the process holds no cache, steady-state usage
+          # sits near the request; the limit exists to bound the pathological
+          # case, not the normal one.
+          resources:
+            requests:
+              cpu: 100m
+              memory: 96Mi
+            limits:
+              memory: 256Mi
+
+          # All three probes are unauthenticated by design — a kubelet cannot
+          # hold an API key — and disclose nothing but liveness.
+
+          # Liveness asks "is this process wedged?" and the only correct answer
+          # to "no" is a restart. It MUST NOT point at /v1/readyz: readyz
+          # answers 503 the moment SIGTERM arrives, so a liveness probe on it
+          # would declare every draining pod dead and SIGKILL it mid-drain —
+          # precisely the requests terminationGracePeriodSeconds exists to
+          # protect. failureThreshold 3 at 10s means a genuine wedge is caught
+          # in ~30s while a single slow scrape is not a restart.
+          livenessProbe:
+            httpGet:
+              path: /v1/healthz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+
+          # Readiness asks "should this pod receive traffic?" — the question
+          # /v1/readyz answers, including the 503 while draining that takes the
+          # pod out of the Service before its connections are cut.
+          # failureThreshold 2 at 5s pulls a sick pod out in ~10s; recovery is
+          # immediate on the next success.
+          readinessProbe:
+            httpGet:
+              path: /v1/readyz
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 2
+            successThreshold: 1
+            failureThreshold: 2
+
+          # Startup gates the other two so that a slow start is never mistaken
+          # for a wedge. Boot is under 100 ms, so 1s x 30 is enormous slack —
+          # deliberately, because the realistic delay is pulling a 9.3 MB image
+          # onto a cold node, not the program. The probe succeeds on the first
+          # poll in the normal case, and liveness only begins after it does.
+          startupProbe:
+            httpGet:
+              path: /v1/healthz
+              port: http
+            periodSeconds: 1
+            timeoutSeconds: 2
+            failureThreshold: 30
+
+          securityContext:
+            # Repeated at container level, not merely inherited: a container
+            # entry can override the pod's, so the guarantee should be written
+            # where the container is.
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+
+            # barqr writes nothing to disk — no cache, no temp file, no config
+            # file, no upload spool — so there is no emptyDir and no tmpfs
+            # mount here. A writable path added "just in case" is somewhere for
+            # a payload to land.
+            readOnlyRootFilesystem: true
+
+            allowPrivilegeEscalation: false
+            privileged: false
+            capabilities:
+              drop: [ALL]
+            seccompProfile:
+              type: RuntimeDefault
+
+---
+# A voluntary disruption (node drain, cluster upgrade, descheduler) may take
+# one replica at a time. Without this, `kubectl drain` on a busy afternoon can
+# evict all three at once — the topology spread above keeps them on separate
+# nodes but says nothing about how many nodes may be drained together.
+#
+# minAvailable: 2 rather than maxUnavailable: 1 because it is expressed in the
+# unit that matters: two replicas must be serving. It also stays correct if
+# someone scales the Deployment up.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: barqr
+  labels:
+    app.kubernetes.io/name: barqr
+    app.kubernetes.io/instance: barqr
+    app.kubernetes.io/component: renderer
+    app.kubernetes.io/part-of: barqr
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: barqr
+      app.kubernetes.io/instance: barqr

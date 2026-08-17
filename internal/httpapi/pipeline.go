@@ -125,7 +125,12 @@ func (s *Server) encodeOpts(req Request, caps encoder.Capabilities) encoder.Enco
 
 // style maps the request onto a render style, starting from the plain
 // black-on-white default and overriding only what was asked for.
-func (s *Server) style(req Request, caps encoder.Capabilities) (render.Style, error) {
+//
+// It takes a context because resolving style.logo may reach the network: a
+// remote logo is fetched here, under the guards in internal/fetch, and the
+// caller's deadline has to bound that fetch like it bounds everything else.
+func (s *Server) style(ctx context.Context, req Request,
+	caps encoder.Capabilities) (render.Style, error) {
 	st := render.DefaultStyle()
 
 	if v := req.Style.Module; v != "" {
@@ -163,15 +168,76 @@ func (s *Server) style(req Request, caps encoder.Capabilities) (render.Style, er
 	if req.Encode.QuietZone != nil {
 		st.QuietZone = *req.Encode.QuietZone
 	}
-	if v := req.Style.Logo; v != "" && !strings.HasPrefix(v, "data:") {
-		f := newFault(http.StatusNotImplemented, CodeUnsupported,
-			"style.logo must be a data: URI in this build")
-		f.Field = "style.logo"
-		f.Got = "a remote reference"
-		f.Expected = "data:image/png;base64,..."
-		f.Hint = "inline the image as a data URI, or upload it as a multipart " +
-			"field named style.logo; remote fetching is not implemented"
-		return render.Style{}, f
+	if v := req.Style.Gradient; v != "" {
+		g, err := render.ParseGradient(v)
+		if err != nil {
+			return render.Style{}, asFault(err).withField("style.gradient")
+		}
+		st.Gradient = g
+	}
+
+	// A logo reference resolves to a data: URI here — an inline one passes
+	// through, a remote one is fetched under the SSRF guards — so a logo that
+	// is unreachable or disallowed is refused before anything is encoded.
+	if v := req.Style.Logo; v != "" {
+		uri, err := s.resolveLogo(ctx, v)
+		if err != nil {
+			return render.Style{}, err
+		}
+		img, err := render.ParseLogo(uri)
+		if err != nil {
+			return render.Style{}, asFault(err).withField("style.logo")
+		}
+
+		logo := &render.Logo{Image: img, Scale: req.Style.LogoScale}
+		if req.Style.Excavate != nil {
+			logo.Excavate = *req.Style.Excavate
+		}
+		if req.Style.LogoPadding != nil {
+			logo.Padding = *req.Style.LogoPadding
+		}
+		st.Logo = logo
+	}
+
+	// A caption needs somewhere to sit, and the renderer reserves that band as
+	// part of the frame. Asking for one without a frame therefore implies the
+	// plainest frame rather than silently dropping the text.
+	caption := req.Style.Caption
+	if req.Style.Frame != "" || caption != "" {
+		frame := &render.Frame{Kind: req.Style.Frame, Caption: caption}
+		if frame.Kind == "" {
+			frame.Kind = render.FrameBorder
+		}
+		// Validate the kind here so the rejection names style.frame. The
+		// renderer would also catch it, but only as a generic invalid style,
+		// and "which field do I fix" is the whole value of the error shape.
+		if !slices.Contains(render.FrameKinds(), frame.Kind) {
+			f := newFault(http.StatusBadRequest, CodeInvalidValue,
+				"unknown frame kind %q", frame.Kind)
+			f.Field = "style.frame"
+			f.Expected = strings.Join(render.FrameKinds(), ", ")
+			f.Got = frame.Kind
+			return render.Style{}, f
+		}
+		if req.Style.FrameWidth != nil {
+			frame.Width = *req.Style.FrameWidth
+		}
+		if v := req.Style.FrameColor; v != "" {
+			c, err := render.ParseColor(v)
+			if err != nil {
+				return render.Style{}, asFault(err).withField("style.frame_color")
+			}
+			frame.Color = c
+		}
+		if v := req.Style.CaptionColor; v != "" {
+			c, err := render.ParseColor(v)
+			if err != nil {
+				return render.Style{}, asFault(err).withField("style.caption_color")
+			}
+			frame.CaptionColor = c
+		}
+		st.Frame = frame
+		st.Caption = caption
 	}
 
 	// The renderer needs the resolved level to judge whether a logo fits the
@@ -259,7 +325,7 @@ func (s *Server) pipeline(ctx context.Context, req Request) (*result, error) {
 		return nil, timeoutFault()
 	}
 
-	st, err := s.style(req, caps)
+	st, err := s.style(ctx, req, caps)
 	if err != nil {
 		return nil, err
 	}

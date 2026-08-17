@@ -1,6 +1,7 @@
 package writer
 
 import (
+	"fmt"
 	"image/color"
 	"regexp"
 	"strings"
@@ -85,6 +86,53 @@ func TestANSIWriteFallsBackToTheTerminalBackground(t *testing.T) {
 	}
 	if !strings.Contains(string(out), ansiDefaultBG) {
 		t.Errorf("a transparent background did not emit %q", ansiDefaultBG)
+	}
+}
+
+func TestANSIWriterRefusesDecoratedCanvases(t *testing.T) {
+	t.Parallel()
+
+	assertRefusesDecorations(t, ansiWriter{})
+}
+
+// TestANSIWritePaintsAGradientPerModule is the case that keeps the refusal rule
+// from being a blanket one: ansi does not merely tolerate a gradient, it
+// reproduces it, so refusing it alongside a logo would be throwing away
+// something the format can actually do.
+func TestANSIWritePaintsAGradientPerModule(t *testing.T) {
+	t.Parallel()
+
+	c := rasterQR(t, gradientStyle())
+	out, err := ansiWriter{}.Write(c, OutputOpts{})
+	if err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	// The endpoint colours themselves never appear: the ramp is sampled at each
+	// module's centre, so the first and last rows sit half a module inside it.
+	// What must appear is both ENDS of the ramp — a red-dominant escape near the
+	// top and a blue-dominant one near the bottom. A writer that had fallen back
+	// to Style.FG would emit neither, only black.
+	var red, blue bool
+	seen := map[string]bool{}
+	for _, esc := range ansiEscape.FindAllString(string(out), -1) {
+		seen[esc] = true
+		var r, g, b int
+		if _, err := fmt.Sscanf(esc, "\x1b[48;2;%d;%d;%dm", &r, &g, &b); err != nil {
+			continue // the reset and the default-background escapes carry no colour
+		}
+		red = red || (r > 200 && b < 60 && g == 0)
+		blue = blue || (b > 200 && r < 60 && g == 0)
+	}
+	if !red || !blue {
+		t.Errorf("red end present = %v, blue end present = %v; want both", red, blue)
+	}
+
+	// The distinct colours have to outnumber a flat render's three, otherwise the
+	// ramp collapsed onto a single fill and the check above could still pass.
+	if len(seen) < 5 {
+		t.Errorf("%d distinct escapes, want more than a flat fill's foreground, "+
+			"background and reset", len(seen))
 	}
 }
 

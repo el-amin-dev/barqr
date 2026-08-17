@@ -262,6 +262,17 @@ smoke: ## Start the built image and exercise it over HTTP
 	echo "==> smoke: /metrics requires a key"; \
 	test "$$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:$(SMOKE_PORT)/metrics)" = 401 \
 		|| fail "metrics served without a key"; \
+	echo "==> smoke: a remote logo is refused while remote fetch is off"; \
+	test "$$(curl -s -o /dev/null -w '%{http_code}' $$auth \
+		"$$base/qr?data=hi&style.logo=https://evil.example/x.png")" = 501 \
+		|| fail "a remote logo was not refused"; \
+	echo "==> smoke: a terminal format refuses a frame it cannot draw"; \
+	test "$$(curl -s -o /dev/null -w '%{http_code}' $$auth \
+		"$$base/qr?data=hi&output.format=ascii&style.frame=border")" = 400 \
+		|| fail "ascii accepted a frame it cannot draw"; \
+	echo "==> smoke: the json format reports its geometry"; \
+	curl -fsS $$auth "$$base/qr?data=hi&output.format=json" \
+		| grep -q '"symbol"' || fail "json omits the symbol rectangle"; \
 	echo "==> smoke: GET /v1/nope is 404"; \
 	test "$$(curl -s -o /dev/null -w '%{http_code}' $$base/nope)" = 404 || fail "404"; \
 	echo "==> smoke: image runs as an unprivileged user"; \

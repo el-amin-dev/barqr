@@ -187,6 +187,21 @@ var spec = []struct{ Key, Default string }{
 	{"BARQR_I_UNDERSTAND_OPEN_BIND", "false"},
 }
 
+// Keys lists every environment variable barqr reads, in the order Redacted
+// prints them.
+//
+// It is exported so the documentation can be checked against it: a variable
+// the binary reads but the reference table omits is a setting nobody can
+// discover, and one the table documents but the binary ignores is worse,
+// because somebody will set it and expect an effect.
+func Keys() []string {
+	out := make([]string, 0, len(spec))
+	for _, s := range spec {
+		out = append(out, s.Key)
+	}
+	return out
+}
+
 // secretKeys are never rendered by Redacted.
 var secretKeys = map[string]bool{"BARQR_API_KEYS": true}
 
@@ -268,10 +283,13 @@ func Load(environ []string) (*Config, []string, error) {
 func (c *Config) unimplemented() []string {
 	var warns []string
 
-	if c.AllowRemoteFetch {
-		warns = append(warns, "BARQR_ALLOW_REMOTE_FETCH=true is not honoured by this "+
-			"build: remote logo fetching is not implemented, and style.logo accepts "+
-			"only data: URIs. Requests naming a remote logo are rejected explicitly.")
+	// Remote fetching is implemented, but an empty allowlist means nothing is
+	// reachable — which is the safe default and also, for someone who has just
+	// switched the feature on, almost certainly not what they meant.
+	if c.AllowRemoteFetch && len(c.FetchAllowlist) == 0 {
+		warns = append(warns, "BARQR_ALLOW_REMOTE_FETCH=true with an empty "+
+			"BARQR_FETCH_ALLOWLIST fetches nothing: the allowlist is exact-match and "+
+			"deny-by-default, so name the hosts you intend to allow.")
 	}
 	if c.Dynamic {
 		warns = append(warns, "BARQR_DYNAMIC=true is not honoured by this build: the "+

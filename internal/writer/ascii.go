@@ -65,11 +65,49 @@ func (asciiWriter) Write(c render.Canvas, _ OutputOpts) ([]byte, error) {
 	return []byte(b.String()), nil
 }
 
-// checkTextCanvas rejects a canvas the text writers cannot draw. They do not
-// go through PixelSize, so this is where the empty-canvas guard lives.
-func checkTextCanvas(c render.Canvas) error {
+// checkCanvas rejects a canvas no writer can serialise.
+//
+// There is exactly one such case: a canvas with no modules, which is a zero
+// Canvas or a render that never happened. It lives here, and every text writer
+// reaches it — the terminal formats through checkTextCanvas, `json` directly —
+// so the rule has one home rather than a copy per format.
+func checkCanvas(c render.Canvas) error {
 	if c.Cols <= 0 || c.Rows <= 0 {
 		return fmt.Errorf("%w: empty canvas", ErrInvalidOutput)
+	}
+	return nil
+}
+
+// checkTextCanvas rejects a canvas the TERMINAL writers cannot draw: `ascii`,
+// `txt`, `unicode` and `ansi`.
+//
+// A logo, a frame, or a caption is decoration the renderer has already
+// reserved space for in Cols and Rows. A terminal writer has no way to draw any
+// of them, so it would emit that reservation as blank rows and columns around
+// the code — a wider, uglier output with nothing in the space, and no hint that
+// anything was dropped. Refusing is the honest answer, and ErrUnsupportedOutput
+// exists for exactly this.
+//
+// `json` is deliberately not covered. It does not draw the decorations, it
+// describes their geometry, so it can represent all three faithfully and goes
+// through checkCanvas alone.
+//
+// A gradient is deliberately NOT refused. `ansi` honours it per module through
+// Canvas.ColorAt, and `ascii`/`unicode` ignore colour entirely — which is a
+// documented property of a monochrome format, not a silently dropped option.
+func checkTextCanvas(c render.Canvas) error {
+	if err := checkCanvas(c); err != nil {
+		return err
+	}
+
+	if _, ok := c.LogoRect(); ok {
+		return fmt.Errorf("%w: a terminal format cannot draw a logo", ErrUnsupportedOutput)
+	}
+	if _, ok := c.FrameRect(); ok {
+		return fmt.Errorf("%w: a terminal format cannot draw a frame", ErrUnsupportedOutput)
+	}
+	if c.Caption() != "" {
+		return fmt.Errorf("%w: a terminal format cannot draw a caption", ErrUnsupportedOutput)
 	}
 	return nil
 }

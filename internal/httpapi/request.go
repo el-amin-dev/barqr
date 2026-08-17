@@ -71,10 +71,22 @@ type StyleSection struct {
 	// Excavate clears the modules behind the logo instead of drawing over
 	// them, which reads better but costs error-correction headroom.
 	Excavate *bool `json:"excavate,omitempty"`
+	// LogoPadding is the clear space around the logo, in modules.
+	LogoPadding *int `json:"logo_padding,omitempty"`
 	// Caption is text drawn beneath the code.
 	Caption string `json:"caption,omitempty"`
-	// Frame names a frame style drawn around the code.
+	// Frame names a frame style drawn around the code: border, rounded,
+	// banner, or bubble.
 	Frame string `json:"frame,omitempty"`
+	// FrameColor and FrameWidth style that frame. An unset colour follows the
+	// foreground, and an unset width takes the renderer's default.
+	FrameColor string `json:"frame_color,omitempty"`
+	FrameWidth *int   `json:"frame_width,omitempty"`
+	// CaptionColor colours the caption text.
+	CaptionColor string `json:"caption_color,omitempty"`
+	// Gradient replaces the flat foreground on data modules, e.g.
+	// "linear(45deg,#000,#00f)" or "radial(#000,#333)".
+	Gradient string `json:"gradient,omitempty"`
 }
 
 // OutputSection holds the serialisation options.

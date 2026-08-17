@@ -86,20 +86,29 @@ defence), `ReadTimeout`, `WriteTimeout`, and `IdleTimeout` are all set on the
 
 ## Layer 4 — egress and SSRF
 
-Remote fetching of logos and background images is **off by default**
-(`BARQR_ALLOW_REMOTE_FETCH=false`). ✅
+Remote fetching of logos is **off by default** (`BARQR_ALLOW_REMOTE_FETCH=false`),
+and `style.logo` accepts only `data:` URIs until it is switched on. ✅
 
-When enabled, the fetcher must (⏳ M5):
+`style.logo` naming a URL makes barqr dereference a destination an untrusted
+caller chose, which is a request-forgery primitive: the caller picks the target,
+and the server brings a routing table, a position inside the network perimeter,
+and often an identity the caller does not have. The guards are therefore
+deny-by-default and layered, all in `internal/fetch`: ✅
 
-- accept `https` only;
-- match the host against `BARQR_FETCH_ALLOWLIST` — an empty allowlist means nothing is
-  fetchable, not everything;
-- refuse redirects that resolve to private, loopback, or link-local addresses;
-- pin the resolved IP and dial *that*, closing the DNS-rebinding window between the
-  allowlist check and the connection;
-- cap both size (`BARQR_FETCH_MAX_BYTES=2MB`) and time (`BARQR_FETCH_TIMEOUT=3s`).
+| Guard | Why |
+|---|---|
+| `https` only | no `file:`, `gopher:`, or plaintext port is reachable |
+| Exact host allowlist, empty by default | nothing is fetchable until an operator names it; `evil-cdn.example` does not match `cdn.example` |
+| Resolve, vet, then dial **the vetted address** | closes the DNS-rebinding window between the check and the connection |
+| Reject loopback, private, link-local, unique-local, multicast and unspecified addresses, including IPv4-mapped forms | the whole point: the caller must not reach inside the perimeter |
+| No redirects at all | following one means re-running every check on a new target; refusing is far easier to get right |
+| `BARQR_FETCH_MAX_BYTES`, checked twice | on `Content-Length` before reading, and again through a `LimitReader`, because a host can lie or omit it |
+| `BARQR_FETCH_TIMEOUT` | a host that answers slowly is a denial-of-service amplifier |
+| Sniffed content type must be `image/*` | regardless of what the server claimed |
 
----
+Errors returned to the caller never carry the underlying network error or the
+resolved address — that address is precisely what these guards exist to keep
+from them.
 
 ## Layer 5 — runtime
 

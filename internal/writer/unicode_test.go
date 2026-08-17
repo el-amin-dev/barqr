@@ -62,6 +62,32 @@ func TestUnicodeWritePacksTwoRowsPerLine(t *testing.T) {
 	}
 }
 
+func TestUnicodeWriterRefusesDecoratedCanvases(t *testing.T) {
+	t.Parallel()
+
+	assertRefusesDecorations(t, unicodeWriter{})
+}
+
+// TestUnicodeWriteIgnoresAGradientRatherThanRefusingIt is the other half of the
+// refusal rule: colour is not something this format ever claimed to carry, so a
+// gradient is dropped openly and the glyphs come out exactly as they would
+// without one.
+func TestUnicodeWriteIgnoresAGradientRatherThanRefusingIt(t *testing.T) {
+	t.Parallel()
+
+	plain, err := unicodeWriter{}.Write(rasterQR(t, render.DefaultStyle()), OutputOpts{})
+	if err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	ramped, err := unicodeWriter{}.Write(rasterQR(t, gradientStyle()), OutputOpts{})
+	if err != nil {
+		t.Fatalf("Write with a gradient: %v", err)
+	}
+	if string(plain) != string(ramped) {
+		t.Error("a gradient changed the glyphs of a monochrome format")
+	}
+}
+
 func TestUnicodeWriteHandlesAnOddNumberOfRows(t *testing.T) {
 	t.Parallel()
 

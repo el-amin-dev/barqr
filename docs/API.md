@@ -98,17 +98,28 @@ guessing wrong produces a perfectly valid code containing the wrong thing.
 | `style.fg` | `#000000` | Module colour. |
 | `style.bg` | `#ffffff` | Background. `transparent` is legal. |
 | `style.eye_fg` | — | Colours the finder patterns differently. |
-| `style.gradient` | — | `linear(45deg,#000,#00f)` or `radial(#000,#333)`. Replaces `fg`. |
-| `style.logo` | — | A `data:` URI. Remote URLs need `BARQR_ALLOW_REMOTE_FETCH`. |
+| `style.gradient` | — | `linear(45deg,#000,#00f)` or `radial(#000,#333)`. Replaces `fg` on data modules; finder patterns keep `fg`. |
+| `style.logo` | — | A `data:` URI, or an `https` URL when `BARQR_ALLOW_REMOTE_FETCH` is on and the host is on `BARQR_FETCH_ALLOWLIST`. |
 | `style.logo_scale` | `0.2` | Logo width as a fraction of the code, `0.05`–`0.35`. |
 | `style.excavate` | `false` | Clear the modules behind the logo. Costs error correction. |
+| `style.logo_padding` | `0` | Clear space around the logo, in modules. |
 | `style.frame` | — | `border` `rounded` `banner` `bubble` |
-| `style.caption` | — | Text beneath the code. |
+| `style.frame_color` | the foreground | Frame colour. |
+| `style.frame_width` | renderer default | Frame thickness, in modules. |
+| `style.caption` | — | Text beneath the code. Implies a frame, since the caption band is part of one. |
+| `style.caption_color` | the foreground | Caption colour. |
 | `style.bar_height` | auto | Linear codes only, in modules. |
 | `style.hri` | `true` | Human-readable text under a linear code. |
 
 Colours accept `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`, or a name
 (`black` `white` `transparent` `red` `green` `blue` `yellow` `cyan` `magenta` `gray`).
+
+> **Semicolons in a query string.** A bare `;` is not a parameter separator, and
+> Go's parser stops there. `?style.logo=data:image/png;base64,…` would lose that
+> parameter and every one after it, so barqr rejects the request with a `400`
+> and a hint rather than rendering something silently wrong. Percent-encode it
+> as `%3B`, or send the request as a JSON body — where the problem does not
+> arise at all.
 
 ### `output` — serialisation
 
@@ -178,8 +189,58 @@ not compiled in.
 | `ascii` / `txt` | `text/plain` | Two characters per module. |
 | `unicode` | `text/plain` | Half-blocks: two matrix rows per terminal row. |
 | `ansi` | `text/plain` | True-colour cells, honours `style.fg`/`style.bg`. |
-| `json` | `application/json` | The module grid as `0`/`1` strings, plus metadata. |
+| `json` | `application/json` | The module grid plus the geometry — see [the json format](#the-json-format). |
 | `datauri` | `text/plain` | A base64 `data:image/png` URI. |
+
+### The json format
+
+`json` is the output for a caller who wants to draw the code themselves. It
+reports the module grid *and* the geometry the renderer computed, so a client
+redrawing it places a logo, a frame and a caption exactly where every other
+format put them.
+
+```json
+{
+  "symbology": "qr", "kind": "2d",
+  "cols": 35, "rows": 39, "quiet_zone": 4,
+  "fg": "#000000", "bg": "#ffffff",
+  "hri": "",
+
+  "symbol":  {"x": 7, "y": 7, "cols": 21, "rows": 21},
+  "logo":    {"x": 15, "y": 15, "cols": 4, "rows": 4},
+  "frame":   {"x": 0, "y": 0, "cols": 35, "rows": 39,
+              "kind": "rounded", "width": 3, "color": "#112233"},
+  "caption": {"x": 3, "y": 32, "cols": 29, "rows": 4,
+              "text": "SCAN ME", "color": "#445566"},
+  "gradient": {"kind": "linear", "angle": 90,
+               "stops": [{"offset": 0, "color": "#ff0000"},
+                         {"offset": 1, "color": "#0000ff"}]},
+
+  "modules": ["000…", "…"]
+}
+```
+
+All coordinates are in **modules**, with the canvas origin at the top left.
+Colours use the same `#rrggbb` / `#rrggbbaa` form as `fg` and `bg`.
+
+| Field | Meaning |
+|---|---|
+| `symbol` | The code itself — quiet zone, frame and caption band all excluded. **Place things relative to this**, not to the canvas, whose bounds move as soon as a frame is added. |
+| `logo` | The reserved artwork area, centred on `symbol`. The image is never inlined; the caller supplied it. |
+| `frame` | The **outer** rectangle; the stroke runs `width` modules inwards from it. `kind` is `border`, `rounded`, `banner` or `bubble`. |
+| `caption` | The band the text must stay inside. It never overlaps the quiet zone. |
+| `gradient` | Fills **data modules only** — finder patterns keep `fg`. `angle` is degrees clockwise from left-to-right, and is ignored for `radial`. |
+
+`logo`, `frame`, `caption` and `gradient` are **absent** when the style did not
+ask for them, rather than present and zeroed. `width` and `color` are the
+*resolved* values the renderer actually reserved and the other writers actually
+painted, not an echo of the request.
+
+The terminal formats — `ascii`, `txt`, `unicode`, `ansi` — cannot draw a logo,
+a frame, or a caption, and **refuse** the request with `UNSUPPORTED_OPTION`
+rather than emitting the reserved space as blank padding. A gradient is not
+refused: `ansi` honours it per module, and the monochrome formats ignore colour
+by design.
 
 ---
 

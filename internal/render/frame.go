@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"sort"
 )
 
 // Frame decorates a code with a border and an optional caption band.
@@ -59,6 +60,20 @@ const (
 	// the caption band.
 	BubbleTailModules = 2
 )
+
+// FrameKinds lists the frame styles this build draws, sorted.
+//
+// It is exported so the HTTP layer can reject an unknown kind against the
+// field the caller actually set, and so the documentation UI can build its
+// control from the registry rather than a hand-written list.
+func FrameKinds() []string {
+	out := make([]string, 0, len(frameKinds))
+	for k := range frameKinds {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
 
 // frameKinds is the set Validate accepts.
 var frameKinds = map[string]bool{

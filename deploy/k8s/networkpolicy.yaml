@@ -1,0 +1,121 @@
+# The ClusterIP in service.yaml is reachable by every pod in the cluster —
+# "internal" is not the same as "restricted". This policy is what makes the
+# service reachable only by the workloads you name.
+#
+# NOTE: a NetworkPolicy is only enforced if the CNI plugin implements it.
+# Calico, Cilium, Antrea, Weave and the managed offerings built on them do;
+# stock Flannel and kindnet do NOT, and there they are silently inert — the
+# API server accepts the object and nothing filters a packet. Check with your
+# platform before treating this file as a control rather than a wish.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: barqr
+  labels:
+    app.kubernetes.io/name: barqr
+    app.kubernetes.io/instance: barqr
+    app.kubernetes.io/component: renderer
+    app.kubernetes.io/part-of: barqr
+spec:
+  # Applies to the barqr pods themselves.
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: barqr
+      app.kubernetes.io/instance: barqr
+
+  # Naming both types matters. Listing a type switches that direction to
+  # default-deny for the selected pods, and only the rules below re-open it.
+  # Omitting Egress here would leave outbound traffic entirely unrestricted,
+  # which is exactly the gap this file is meant to close.
+  policyTypes:
+    - Ingress
+    - Egress
+
+  ingress:
+    # One rule: a pod carrying `barqr-client: "true"` may open TCP 3000.
+    # Everything else in the cluster — every other namespace, every other pod
+    # in this one, the ingress controller, a compromised sidecar — cannot open
+    # a connection at all, key or no key. This is the layer that holds when an
+    # API key leaks.
+    #
+    # Label the caller to grant access:
+    #   kubectl -n barqr label pod/<pod> barqr-client=true
+    # or, properly, add it to the caller's own pod template.
+    - from:
+        - podSelector:
+            matchLabels:
+              barqr-client: "true"
+      ports:
+        - protocol: TCP
+          port: 3000
+
+    # A bare podSelector means "in this namespace". A caller elsewhere needs
+    # its namespace named too — both selectors inside ONE list entry, so they
+    # are ANDed. Written as two entries they would be ORed, which would admit
+    # every pod in that namespace and every `barqr-client` pod anywhere: the
+    # classic way this file gets quietly widened.
+    #
+    # - from:
+    #     - namespaceSelector:
+    #         matchLabels:
+    #           kubernetes.io/metadata.name: my-app
+    #       podSelector:
+    #         matchLabels:
+    #           barqr-client: "true"
+    #   ports:
+    #     - protocol: TCP
+    #       port: 3000
+
+    # Prometheus scraping, if your monitoring stack lives in another namespace.
+    # /metrics is behind the API key, so the scrape config also needs the
+    # Secret from secret.example.yaml.
+    #
+    # - from:
+    #     - namespaceSelector:
+    #         matchLabels:
+    #           kubernetes.io/metadata.name: monitoring
+    #   ports:
+    #     - protocol: TCP
+    #       port: 3000
+
+  # Default-deny egress: the empty list, combined with Egress in policyTypes
+  # above, permits nothing outbound. Not a placeholder — barqr opens no
+  # outbound connections whatsoever. It does not call a database, a cache, a
+  # queue, a licence server, or a telemetry endpoint, and it does not even need
+  # DNS, since it resolves no names. Remote logo and background fetching is the
+  # one feature that would, and it is off (BARQR_ALLOW_REMOTE_FETCH=false, the
+  # default and the only setting this build honours).
+  #
+  # That makes this rule cheap and valuable: it is the control that turns an
+  # SSRF or a supply-chain foothold in the renderer into a dead end, because
+  # there is nowhere for it to send what it found.
+  #
+  # If you ever enable remote fetch, this must open up — and only this far:
+  # DNS to the cluster resolver, and HTTPS to the hosts in
+  # BARQR_FETCH_ALLOWLIST. Never `to: [{}]`.
+  #
+  # egress:
+  #   - to:
+  #       - namespaceSelector:
+  #           matchLabels:
+  #             kubernetes.io/metadata.name: kube-system
+  #         podSelector:
+  #           matchLabels:
+  #             k8s-app: kube-dns
+  #     ports:
+  #       - protocol: UDP
+  #         port: 53
+  #       - protocol: TCP
+  #         port: 53
+  #   - to:
+  #       - ipBlock:
+  #           cidr: 0.0.0.0/0
+  #           except:
+  #             - 10.0.0.0/8
+  #             - 172.16.0.0/12
+  #             - 192.168.0.0/16
+  #             - 169.254.0.0/16
+  #     ports:
+  #       - protocol: TCP
+  #         port: 443
+  egress: []

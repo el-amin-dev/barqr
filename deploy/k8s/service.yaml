@@ -1,0 +1,67 @@
+# ClusterIP: an address that exists only inside the cluster. Callers use
+# http://barqr.barqr.svc.cluster.local:3000 (or just `barqr` from inside this
+# namespace).
+#
+# There is NO Ingress object here, and there never will be — see the note at
+# the bottom of this file. For the same reason the type is not LoadBalancer
+# (which asks a cloud provider for a public IP) and not NodePort (which opens
+# a port on every node's host network, bypassing the NetworkPolicy entirely).
+apiVersion: v1
+kind: Service
+metadata:
+  name: barqr
+  labels:
+    app.kubernetes.io/name: barqr
+    app.kubernetes.io/instance: barqr
+    app.kubernetes.io/component: renderer
+    app.kubernetes.io/part-of: barqr
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: barqr
+    app.kubernetes.io/instance: barqr
+  ports:
+    - name: http
+      port: 3000
+      # Named, not numbered: the Deployment can move the container port
+      # without this file changing.
+      targetPort: http
+      protocol: TCP
+      # Lets a service mesh or a gateway pick HTTP/1.1 semantics without
+      # sniffing the first bytes.
+      appProtocol: http
+
+  # No session affinity. Every replica is identical and holds no state, so
+  # pinning a client to one pod would only concentrate load and slow down
+  # draining.
+  sessionAffinity: None
+
+  # Endpoints are published only once a pod is ready. This is the default and
+  # it is stated here because it is load-bearing during a rollout: it is what
+  # takes a draining pod (readyz -> 503) out of rotation before its connections
+  # are cut.
+  publishNotReadyAddresses: false
+
+# ---------------------------------------------------------------------------
+# Why there is no Ingress object
+#
+# An Ingress is a request to a controller to publish this Service on a public
+# hostname, usually with a certificate and a cloud load balancer attached. Ship
+# one in a repository and someone eventually applies it "to test", and barqr —
+# which has no tenancy model, no quota system, and no abuse protection beyond a
+# per-key rate limiter — is on the open internet behind a single shared API
+# key. The threat model in docs/SECURITY.md is explicit that the goal is not
+# "survive the open internet" but "never end up on the open internet by
+# accident", and the cheapest way to keep that promise is to never write the
+# object down.
+#
+# If you truly need external access, that is a deliberate decision made in your
+# own infrastructure repository, not a file copied from here — and it needs an
+# authenticating gateway, a WAF or equivalent rate limiting in front, and a
+# per-consumer key rather than the one in this Secret.
+#
+# To reach it from a laptop for debugging, no Ingress is required:
+#   kubectl -n barqr port-forward svc/barqr 3000:3000
+# which is authenticated by your kubeconfig and disappears when you press
+# Ctrl-C.
+# ---------------------------------------------------------------------------

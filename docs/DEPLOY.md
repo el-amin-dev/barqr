@@ -60,8 +60,8 @@ Two rules:
 
 | Variable | Default | Notes |
 |---|---|---|
-| `BARQR_ALLOW_REMOTE_FETCH` | `false` | Remote logo/background fetching. This is the SSRF surface — leave it off unless needed. |
-| `BARQR_FETCH_ALLOWLIST` | *(empty)* | Comma-separated hosts. Empty means nothing is fetchable. |
+| `BARQR_ALLOW_REMOTE_FETCH` | `false` | Lets `style.logo` name an `https` URL. This is the SSRF surface — leave it off unless you need it. |
+| `BARQR_FETCH_ALLOWLIST` | *(empty)* | Comma-separated hosts, matched exactly. Empty means **nothing** is fetchable, so enabling the feature without setting this warns at boot. |
 | `BARQR_FETCH_TIMEOUT` | `3s` | |
 | `BARQR_FETCH_MAX_BYTES` | `2MB` | |
 
@@ -79,14 +79,16 @@ Two rules:
 
 ### Not honoured by this build
 
-Two documented variables parse and validate but have no feature behind them yet.
-Rather than accept them silently, barqr warns at boot and the API rejects a
-request that depends on them:
+One documented variable parses and validates but has no feature behind it yet.
+Rather than accept it silently, barqr warns at boot:
 
 | Variable | What happens |
 |---|---|
-| `BARQR_ALLOW_REMOTE_FETCH` | Warns at boot. `style.logo` accepts `data:` URIs only; a remote reference is refused with `501 UNSUPPORTED_OPTION` rather than ignored. `BARQR_FETCH_*` are inert. |
 | `BARQR_DYNAMIC` | Warns at boot. `/v1/dynamic` is not routed. |
+
+With `BARQR_ALLOW_REMOTE_FETCH=false` (the default), `style.logo` accepts only
+`data:` URIs and a remote reference is refused with `501 UNSUPPORTED_OPTION`
+rather than ignored.
 
 ---
 

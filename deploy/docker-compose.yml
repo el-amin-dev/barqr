@@ -1,0 +1,174 @@
+# barqr — Compose deployment.
+#
+# The shape this file demonstrates matters more than the file itself: barqr is
+# an *internal* service. It lives on a private network, sibling containers
+# reach it by DNS name, and nothing on the host — let alone off it — can
+# address it at all. See docs/SECURITY.md, layer 1.
+#
+#   export BARQR_KEY="$(openssl rand -base64 32)"
+#   docker compose -f deploy/docker-compose.yml up -d
+#
+# There is no `version:` key: it has been obsolete since Compose v2 and is
+# ignored with a warning.
+
+# Without this the project would be named after this file's directory —
+# "deploy" — and every resource would be `deploy_*`.
+name: barqr
+
+services:
+  # A stand-in for whatever calls barqr. It is here so this file shows the
+  # intended two-container shape rather than barqr on its own — barqr alone,
+  # unreachable by anything, is not a deployment.
+  #
+  # Replace the image with your own (or `build: ../` if the consumer lives in
+  # this repo). What matters is the two environment variables and the shared
+  # network.
+  app:
+    image: curlimages/curl:8.11.1
+    command: ["sleep", "infinity"]
+    environment:
+      # Service name, not localhost: each container has its own network
+      # namespace, so 127.0.0.1 inside `app` is `app` itself.
+      BARQR_URL: "http://barqr:3000/v1"
+      # Same key the server is given. `:?` aborts the whole `up` if it is
+      # unset, which is the point — see the barqr service below.
+      BARQR_KEY: "${BARQR_KEY:?set BARQR_KEY first, e.g. BARQR_KEY=$$(openssl rand -base64 32)}"
+    # Start ordering only. `condition: service_healthy` is unavailable because
+    # barqr cannot declare a healthcheck (see below), and it is not needed:
+    # barqr boots in under 100 ms and a client should retry a connection
+    # refusal anyway.
+    depends_on: [barqr]
+    networks: [barqr, egress]
+    restart: unless-stopped
+
+  barqr:
+    # Pinned by tag, which is mutable. For production pin by digest so a
+    # re-pull cannot silently change the bytes you reviewed:
+    #   image: ghcr.io/el-amin-dev/barqr@sha256:<digest>
+    image: barqr:dev
+
+    # `expose:` makes 3000 reachable by containers on the same network and by
+    # nothing else. It publishes no host port and edits no firewall rule.
+    expose: ["3000"]
+
+    # ports: ["3000:3000"]
+    #
+    # Deliberately commented out, and it should stay that way. `ports:`
+    # publishes through the host's NAT and — because Docker writes its own
+    # iptables rules ahead of the INPUT chain — a bare `3000:3000` binds
+    # 0.0.0.0 on the host and is *not* filtered by a host firewall such as
+    # ufw. On a machine with a public interface that puts a QR renderer on the
+    # open internet, protected by nothing but an API key. barqr has no tenancy
+    # model and no abuse protection beyond rate limiting (docs/SECURITY.md), so
+    # the threat model is "never end up on the open internet by accident".
+    #
+    # If you genuinely need host access for debugging, bind the loopback
+    # explicitly and remove it again afterwards:
+    #   ports: ["127.0.0.1:3000:3000"]
+
+    environment:
+      # 0.0.0.0 binds this container's namespace, not the host's. Combined
+      # with `expose:` and no published port, the reachable surface is exactly
+      # the containers on the `barqr` network.
+      BARQR_BIND: "0.0.0.0"
+      BARQR_PORT: "3000"
+
+      # `:?` again: Compose fails the command with this message rather than
+      # starting the stack. Without it a missing variable would expand to the
+      # empty string, and an empty BARQR_API_KEYS on a wildcard bind is one of
+      # the two startup-fatal configurations — so the container would refuse to
+      # boot, restart forever under `unless-stopped`, and the actual cause
+      # would be buried in the logs. Failing here says why in one line.
+      BARQR_API_KEYS: "${BARQR_KEY:?set BARQR_KEY first, e.g. BARQR_KEY=$$(openssl rand -base64 32)}"
+      BARQR_AUTH_MODE: "required"
+
+      # Sized for a service-to-service caller rather than a browser: one
+      # trusted client, so the limit is a runaway-loop guard, not a quota.
+      BARQR_RATE_LIMIT: "600/min"
+      BARQR_CONCURRENCY: "8"
+      BARQR_REQUEST_TIMEOUT: "10s"
+
+      # The 25 MP default would let one request ask for a 100 MB pixel buffer
+      # (4 bytes per pixel, NRGBA). 4 MP is 16 MB per render, so eight
+      # concurrent worst-case renders stay inside a container that a small host
+      # can actually schedule. Raise both this and the memory ceiling together
+      # or not at all.
+      BARQR_MAX_CANVAS_PX: "4000000"
+
+      # Must stay below `stop_grace_period` below. See the comment there.
+      BARQR_SHUTDOWN_GRACE: "20s"
+
+      # JSON to stdout; Docker's logging driver owns the file, barqr never
+      # writes one — which is what lets the root filesystem stay read-only.
+      BARQR_LOG_FORMAT: "json"
+      BARQR_LOG_LEVEL: "info"
+
+      # No browser reaches this deployment, so the docs UI is surface without a
+      # user. Set it to "true" if you want to explore the API from a laptop via
+      # a temporary loopback port publish.
+      BARQR_DOCS: "false"
+
+    # The distroless image already declares USER 65532:65532; repeating it here
+    # means a `docker compose run --user root` or a future base-image change
+    # cannot quietly hand this process root.
+    user: "65532:65532"
+
+    # barqr is stateless: no cache, no temp files, no upload spool, no config
+    # file. It writes nothing but stdout. So the root filesystem is read-only
+    # and there is deliberately NO `tmpfs:` — an empty writable mount "just in
+    # case" is a place for an exploit to stage a payload and buys nothing. If
+    # a future feature needs scratch space, that is a design conversation, not
+    # a line added here.
+    read_only: true
+
+    # Nothing here needs a capability: it binds 3000 (above 1024) as a non-root
+    # user and never touches a raw socket, a device, or another process.
+    cap_drop: [ALL]
+
+    # Blocks setuid binaries and file capabilities from raising privilege, so a
+    # compromise inside the process cannot escalate out of uid 65532. Belt and
+    # braces with cap_drop: there is no shell in the image to run a setuid
+    # binary with in the first place.
+    security_opt: ["no-new-privileges:true"]
+
+    restart: unless-stopped
+
+    # No `healthcheck:` — and this is not an oversight. The image is
+    # gcr.io/distroless/static-debian12:nonroot: no shell, no curl, no wget, no
+    # busybox. `CMD-SHELL` has no shell to run and `CMD ["curl", ...]` has no
+    # curl to exec, so every healthcheck spelling fails and the container is
+    # marked unhealthy forever. Adding a shell to the image to satisfy Compose
+    # would trade a real security property for a status column.
+    #
+    # The HTTP probes exist and are wired up where a scheduler can use them:
+    # deploy/k8s/deployment.yaml — /v1/healthz for liveness, /v1/readyz for
+    # readiness, both unauthenticated. Under Compose, `restart: unless-stopped`
+    # covers the case a healthcheck would have covered (process died), and
+    # readiness has no meaning with a single static replica and no load
+    # balancer.
+
+    # Strictly greater than BARQR_SHUTDOWN_GRACE (20s) above. On SIGTERM barqr
+    # stops accepting, answers /v1/readyz with 503, and drains in-flight
+    # requests for up to the grace window. Compose SIGKILLs at
+    # stop_grace_period, which defaults to 10s — i.e. ten seconds *shorter*
+    # than the drain, so the default would cut live requests on every
+    # `compose up` of a new image. The 10s of slack absorbs a request that
+    # started just before the signal.
+    stop_grace_period: 30s
+
+    networks: [barqr]
+
+networks:
+  # `internal: true` gives this network no gateway: containers on it can talk
+  # to each other and to nothing else. That is the Compose equivalent of the
+  # default-deny egress NetworkPolicy in deploy/k8s/networkpolicy.yaml, and it
+  # is accurate — barqr makes no outbound connections at all while
+  # BARQR_ALLOW_REMOTE_FETCH is false, which is the default and the only
+  # supported setting in this build. It also means a compromised renderer has
+  # nowhere to call home to.
+  barqr:
+    internal: true
+
+  # The consumer's own outbound network. barqr is deliberately not attached to
+  # it: `app` can reach the internet, barqr cannot.
+  egress: {}
