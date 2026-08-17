@@ -283,8 +283,8 @@ scrape_configs:
       credentials_file: /etc/prometheus/secrets/barqr/api-keys
 ```
 
-Under the Prometheus Operator the same thing is `spec.authorization` on a
-`ServiceMonitor`, with the Secret mounted into the Prometheus pod.
+Under the Prometheus Operator the same thing is an `authorization` block on the
+`ServiceMonitor`'s endpoint, sourcing the key from the Secret.
 `BARQR_METRICS=false` turns the endpoint off entirely.
 
 ### Scaling
@@ -294,6 +294,14 @@ no leader election. Scale on CPU or on request rate. Inside each process,
 `BARQR_CONCURRENCY` bounds the worker semaphore so a burst queues rather than thrashes,
 and `BARQR_REQUEST_TIMEOUT` bounds how long a queued request waits before it is shed.
 Boot is under 100 ms, so a scale-up is useful immediately.
+
+The shipped Deployment sets a CPU *request* and deliberately no CPU *limit*. A limit is
+enforced by CFS throttling in 100 ms slices, which on a 4 ms request path turns a brief
+burst into multi-hundred-millisecond tail latency for no protective benefit —
+`BARQR_CONCURRENCY` already bounds how much work the process does at once, and that
+bound is a semaphore rather than a stall. The memory limit is different and is not
+optional: memory is not compressible, which is why the canvas cap above has to be set
+with it.
 
 ---
 
