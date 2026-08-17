@@ -1,0 +1,80 @@
+# golangci-lint configuration for barqr.
+#
+# The linter set is deliberately opinionated: unchecked errors, shadowed
+# security assumptions, and undocumented exported symbols are all bugs waiting
+# to be shipped, so they fail the build rather than collect in a backlog.
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  default: standard # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    - bodyclose # a leaked response body is a slow production outage
+    - errorlint # enforces %w wrapping and errors.Is/As over type switches
+    - gosec # security posture is a build gate, not a review checklist
+    - misspell
+    - nilerr
+    - noctx # every outbound request must carry a context
+    - revive
+    - unconvert
+    - usestdlibvars
+
+  settings:
+    errcheck:
+      check-type-assertions: true
+      # A CLI cannot meaningfully recover from a failed write to stdout or
+      # stderr; the process is already on its way out.
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment # readability of config structs beats a few bytes
+    revive:
+      rules:
+        - name: exported # every exported symbol carries a doc comment
+        - name: package-comments
+        - name: indent-error-flow
+        - name: errorf
+        - name: error-return
+        - name: error-strings
+        - name: error-naming
+        - name: increment-decrement
+        - name: var-declaration
+        - name: redefines-builtin-id
+        - name: unreachable-code
+        - name: superfluous-else
+    staticcheck:
+      checks:
+        - all
+
+  exclusions:
+    generated: lax
+    presets:
+      - common-false-positives
+    rules:
+      # Tests exercise failure paths on purpose and are not attack surface.
+      - path: _test\.go
+        linters:
+          - bodyclose
+          - errcheck
+          - gosec
+          - noctx
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/el-amin-dev/barqr
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

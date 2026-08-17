@@ -5,6 +5,15 @@
 *.pem
 *.key
 
+# --- go ---
+bin/
+dist/
+coverage.out
+coverage.html
+*.test
+*.out
+vendor/
+
 # --- python ---
 __pycache__/
 *.py[cod]

@@ -1,0 +1,14 @@
+# Keep the build context to the source the image is built from.
+.git
+.github
+.claude
+.cache
+bin
+coverage.out
+deploy
+docs
+testdata
+*.md
+Makefile
+.golangci.yml
+.editorconfig
