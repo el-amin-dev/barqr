@@ -94,6 +94,42 @@ docker run --rm --env-file prod.env barqr:dev check-config   # exit 0 = good
 - `make ci` — build · vet · lint · test -race · docker build · smoke. This is exactly
   what the pull-request workflow runs.
 
+## Release
+
+A push to `main` publishes `edge` and `sha-<short>`. A `v*.*.*` **tag** is what
+publishes `latest`, `<major>.<minor>.<patch>`, `<major>.<minor>`, `<major>` and cuts
+the GitHub Release. Tagging is the only irreversible step, so validate first:
+
+```bash
+docker run --rm -v "$PWD:/src" -w /src goreleaser/goreleaser:latest check
+docker run --rm -v "$PWD:/src" -w /src goreleaser/goreleaser:latest \
+  release --snapshot --clean --skip=sbom,publish,sign
+./dist/barqr_linux_amd64_v1/barqr version   # must print the version, not "dev"
+docker run --rm -v "$PWD:/src" -w /src --entrypoint sh \
+  goreleaser/goreleaser:latest -c 'rm -rf dist'   # that image runs as root
+```
+
+Then tag:
+
+```bash
+git tag -a v0.1.0 -m "barqr v0.1.0" && git push origin v0.1.0
+```
+
+Verify the published image **anonymously** — `docker manifest inspect` would use your
+own login and cannot answer "can anyone pull this?":
+
+```bash
+REPO=el-amin-dev/barqr
+T=$(curl -s "https://ghcr.io/token?scope=repository:$REPO:pull&service=ghcr.io" \
+    | grep -o '"token":"[^"]*' | cut -d'"' -f4)
+curl -s -H "Authorization: Bearer $T" "https://ghcr.io/v2/$REPO/tags/list"
+curl -sI -H "Authorization: Bearer $T" \
+  -H 'Accept: application/vnd.oci.image.index.v1+json' \
+  "https://ghcr.io/v2/$REPO/manifests/latest" | grep -i docker-content-digest
+```
+
+`latest` and the semver tags must all report the same digest.
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
@@ -105,3 +141,6 @@ docker run --rm --env-file prod.env barqr:dev check-config   # exit 0 = good
 | `make lint` fails to pull the linter image | Registry timeout | `docker pull golangci/golangci-lint:v2.12.2-alpine` and retry |
 | `-race requires cgo` | `TOOLCHAIN=docker` with an Alpine Go image | `make test` uses `golang:1.26` (Debian) for this reason; do not override `GO_IMAGE` to an Alpine tag |
 | Root-owned files in `.cache/` | An older container run without `--user` | `make clean` |
+| Root-owned `dist/` that `rm -rf` cannot delete | The `goreleaser` image runs as root, unlike the Makefile's `--user` wrapper | `docker run --rm -v "$PWD:/src" -w /src --entrypoint sh goreleaser/goreleaser:latest -c 'rm -rf dist'` |
+| CI job fails in `Set up job` with `Failed to download action … 429`/`503` | GitHub-side incident or rate limiting on `codeload.github.com`; no project code has run yet | Check [githubstatus.com](https://www.githubstatus.com) and re-run the failed jobs. Do **not** unpin the action SHAs to work around it — see ADR-015 |
+| `:latest` is missing from GHCR while CI is green | `ci.yml` publishes only `edge` + `sha-*`; `latest` requires a `v*.*.*` tag | Cut a tag — see [Release](#release) |

@@ -5,6 +5,42 @@
 
 <!-- append ADRs below, newest first -->
 
+## ADR-015 — A registry outage is waited out, never engineered around (2026-08-17)
+
+- status: accepted
+- context: during the `v0.1.0` release, GitHub was in a Partial System Outage with
+  Actions in major outage and ~20% error rates on web and API traffic. Every CI
+  failure was a `429`/`503` from `codeload.github.com` while downloading the
+  SHA-pinned actions, inside `Set up job` — before any project code was evaluated.
+  Six consecutive runs failed this way over ~35 minutes. The obvious "fixes" were
+  all available: unpin the action SHAs to mutable tags, vendor the actions into the
+  repo, or wrap each `uses:` in a retry shim.
+- decision: change nothing in the repository in response to a provider incident.
+  Retry the runs, classify each failure as transient-or-real (so a genuine defect
+  is never buried under retries), and wait. Action SHAs stay pinned. The only
+  in-repo change permitted during the incident was an unrelated, independently
+  justified defect found on the way (`codeql.yml` had no concurrency group).
+- alternatives:
+  - *Unpin to mutable tags* — trades a two-hour incident for a permanent
+    supply-chain hole, since a tag can be repointed at malicious code by a
+    compromised maintainer. This is exactly what SHA-pinning exists to prevent.
+  - *Vendor the actions* — moves a third-party update problem into the repo and
+    silently freezes security fixes to the actions themselves.
+  - *Retry shims per `uses:`* — permanent complexity in every workflow to paper
+    over a transient condition; also cannot help, because the failure is in the
+    runner's own action-fetch phase, ahead of the first step.
+  - *Hand-push the image from a workstation to beat the outage* — rejected
+    outright: it would arrive unsigned, un-attested and SBOM-less, while
+    `docs/DEPLOY.md` instructs users to `cosign verify` it. Shipping an artifact
+    that fails your own documented verification is worse than shipping late.
+- consequences: releases are hostage to provider availability, and that is
+  accepted — `barqr` has no release deadline that outranks its supply-chain
+  guarantees. The operational cost is paid in the runbook instead: the
+  Troubleshooting table names this failure signature so the next person recognises
+  it in seconds rather than debugging their own workflow. Corollary: a failure in
+  `Set up job` is *never* a project defect, and that boundary is the cheapest
+  triage rule available.
+
 ## ADR-014 — Documentation is checked against the code, not maintained beside it (2026-08-17)
 
 - status: accepted
