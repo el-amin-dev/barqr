@@ -23,6 +23,9 @@ import (
 //	cors        preflights are answered before auth, since a browser
 //	            preflight carries no credentials by design
 //	bodyLimit   cap the body before anything reads it
+//	attempts    throttle key guesses BEFORE auth, since auth answers 401
+//	            without calling the next handler and so a limiter placed
+//	            after it would never see a failed attempt
 //	auth        reject unauthenticated callers before spending work
 //	rateLimit   buckets by authenticated key, so it runs after auth
 //	timeout     bound the handler
@@ -42,6 +45,33 @@ func (s *Server) routes() http.Handler {
 	r.NotFound(s.handleNotFound)
 	r.MethodNotAllowed(s.handleMethodNotAllowed)
 
+	// The documentation UI sits outside the JSON API group: a browser cannot
+	// put an API key on a top-level navigation, so these routes run their own
+	// key resolution (header, cookie, or one-shot query) and answer with an
+	// HTML prompt instead of a JSON 401. The landing page is public — it
+	// discloses what the service is, which /v1/version already does.
+	if s.cfg.Docs {
+		// The landing page is public: it names the service and links to the
+		// documentation, and now carries only the public capability payload.
+		r.Get("/", s.handleLanding)
+		r.Head("/", s.handleLanding)
+
+		// The docs views check a key themselves — a browser cannot put one on
+		// a navigation — so they get the same body limit, attempt throttle,
+		// timeout and semaphore as the API. Without the throttle these routes
+		// would be an unauthenticated, unmetered oracle for guessing a key.
+		r.Group(func(r chi.Router) {
+			r.Use(s.withBodyLimit)
+			r.Use(s.withAttemptLimit)
+			r.Use(s.withTimeout)
+			r.Use(s.withConcurrency)
+
+			r.Get("/v1/docs", s.handleDocs)
+			r.Post("/v1/docs", s.handleDocs)
+			r.Get("/v1/docs/*", s.handleDocs)
+		})
+	}
+
 	r.Route("/v1", func(r chi.Router) {
 		// Unauthenticated: probes and build identity.
 		r.Get("/healthz", s.handleHealthz)
@@ -51,6 +81,7 @@ func (s *Server) routes() http.Handler {
 		// Authenticated: everything that does work.
 		r.Group(func(r chi.Router) {
 			r.Use(s.withBodyLimit)
+			r.Use(s.withAttemptLimit)
 			r.Use(s.withAuth)
 			r.Use(s.withRateLimit)
 			r.Use(s.withTimeout)
@@ -82,7 +113,14 @@ func (s *Server) routes() http.Handler {
 	})
 
 	if s.metrics != nil {
-		r.Handle("/metrics", s.metrics.handler())
+		// Behind the same key as the API. It reports heap size, goroutine and
+		// file-descriptor counts and per-route request rates — useful to an
+		// operator and equally useful to someone sizing up the process.
+		r.Group(func(r chi.Router) {
+			r.Use(s.withAttemptLimit)
+			r.Use(s.withAuth)
+			r.Handle("/metrics", s.metrics.handler())
+		})
 	}
 
 	return r

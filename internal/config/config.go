@@ -128,6 +128,11 @@ type Config struct {
 	FetchMaxBytes    int64
 
 	// Behaviour.
+	// Docs enables the browser documentation UI at / and /v1/docs. It is on by
+	// default because a service nobody can learn to use is not much of a
+	// service, and off is one variable away for a deployment that wants no
+	// HTML surface at all.
+	Docs               bool
 	StrictScannability ScannabilityMode
 	CORSOrigins        []string
 	Metrics            bool
@@ -177,6 +182,7 @@ var spec = []struct{ Key, Default string }{
 	{"BARQR_LOG_LEVEL", "info"},
 	{"BARQR_LOG_FORMAT", "json"},
 	{"BARQR_PRESETS_PATH", ""},
+	{"BARQR_DOCS", "true"},
 	{"BARQR_DYNAMIC", "false"},
 	{"BARQR_I_UNDERSTAND_OPEN_BIND", "false"},
 }
@@ -223,6 +229,7 @@ func Load(environ []string) (*Config, []string, error) {
 		FetchAllowlist:     l.list("BARQR_FETCH_ALLOWLIST"),
 		FetchTimeout:       l.duration("BARQR_FETCH_TIMEOUT", time.Millisecond),
 		FetchMaxBytes:      l.bytes("BARQR_FETCH_MAX_BYTES", 1),
+		Docs:               l.boolean("BARQR_DOCS"),
 		StrictScannability: ScannabilityMode(l.enum("BARQR_STRICT_SCANNABILITY", string(ScannabilityOff), string(ScannabilityWarn), string(ScannabilityStrict))),
 		CORSOrigins:        l.list("BARQR_CORS_ORIGINS"),
 		Metrics:            l.boolean("BARQR_METRICS"),
@@ -246,7 +253,32 @@ func Load(environ []string) (*Config, []string, error) {
 	if len(l.errs) > 0 {
 		return nil, l.warns, errors.Join(l.errs...)
 	}
+
+	l.warns = append(l.warns, cfg.unimplemented()...)
 	return cfg, l.warns, nil
+}
+
+// unimplemented reports settings this build parses but cannot act on.
+//
+// Each of these is a valid, documented variable whose feature is not in the
+// binary yet. Accepting one silently would be exactly the failure mode barqr
+// refuses everywhere else — an option that looks like it worked and did
+// nothing — so the operator is told at boot rather than left to wonder why
+// their logo never appears.
+func (c *Config) unimplemented() []string {
+	var warns []string
+
+	if c.AllowRemoteFetch {
+		warns = append(warns, "BARQR_ALLOW_REMOTE_FETCH=true is not honoured by this "+
+			"build: remote logo fetching is not implemented, and style.logo accepts "+
+			"only data: URIs. Requests naming a remote logo are rejected explicitly.")
+	}
+	if c.Dynamic {
+		warns = append(warns, "BARQR_DYNAMIC=true is not honoured by this build: the "+
+			"dynamic-code module is not implemented and /v1/dynamic is not routed.")
+	}
+
+	return warns
 }
 
 // checkSecurity enforces the deny-by-default posture from docs/SECURITY.md.
@@ -262,11 +294,19 @@ func (c *Config) checkSecurity() []error {
 			ErrInsecure, c.Bind))
 	}
 
-	if c.AuthMode == AuthOpen && isWildcard(c.Bind) && !c.UnderstandOpenBind {
+	// Not just a wildcard: BARQR_BIND=10.0.1.7 with open auth is unauthenticated
+	// code generation on the LAN, which is the same exposure with a narrower
+	// blast radius. The predicate is "not loopback", so both are caught.
+	if c.AuthMode == AuthOpen && !isLoopback(c.Bind) && !c.UnderstandOpenBind {
+		reach := "that network"
+		if isWildcard(c.Bind) {
+			reach = "every network interface"
+		}
 		errs = append(errs, fmt.Errorf(
-			"%w: BARQR_AUTH_MODE=open on wildcard bind %q would serve every network interface without "+
-				"authentication; set BARQR_I_UNDERSTAND_OPEN_BIND=true to accept this, or use BARQR_AUTH_MODE=required",
-			ErrInsecure, c.Bind))
+			"%w: BARQR_AUTH_MODE=open on non-loopback bind %q would serve unauthenticated "+
+				"requests to %s; set BARQR_I_UNDERSTAND_OPEN_BIND=true to accept this, "+
+				"or use BARQR_AUTH_MODE=required",
+			ErrInsecure, c.Bind, reach))
 	}
 
 	return errs
@@ -420,7 +460,10 @@ func (l *loader) fail(key, reason string) {
 	l.errs = append(l.errs, fmt.Errorf("%w: %s=%q: %s", ErrInvalid, key, l.effective[key], reason))
 }
 
-func (l *loader) str(key string) string { return l.effective[key] }
+// str returns a trimmed string value. Everything else trims, and BARQR_BIND in
+// particular must: a stray space makes it neither loopback nor wildcard, which
+// would slip past the security invariants before failing confusingly at listen.
+func (l *loader) str(key string) string { return strings.TrimSpace(l.effective[key]) }
 
 // list splits a comma-separated value, trimming spaces and dropping empties.
 func (l *loader) list(key string) []string {

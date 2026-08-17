@@ -79,9 +79,14 @@ func (s *Server) handleSheet(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, f)
 		return
 	}
-	if req.Skip < 0 {
-		f := newFault(http.StatusBadRequest, CodeInvalidValue, "skip cannot be negative")
+	// Bound skip on its own before adding it to anything: len(items)+skip
+	// overflows for a skip near MaxInt, wrapping negative, slipping past the
+	// cap below and then panicking inside make().
+	if req.Skip < 0 || req.Skip > s.cfg.MaxBatchItems {
+		f := newFault(http.StatusBadRequest, CodeInvalidValue,
+			"skip must be between 0 and %d", s.cfg.MaxBatchItems)
 		f.Field = "skip"
+		f.Got = strconv.Itoa(req.Skip)
 		s.fail(w, r, f)
 		return
 	}

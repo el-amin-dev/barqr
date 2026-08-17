@@ -1,0 +1,1187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>barqr — request builder</title>
+<style>{{STYLE}}</style>
+<style>
+/* Page-specific layout. Everything visual comes from the shared token set in
+ * theme.css; this block only arranges the two columns and the few widgets the
+ * shared stylesheet has no reason to know about. There is no theme toggle:
+ * prefers-color-scheme is the only input, exactly as on the landing page. */
+
+.wrap { max-width: 1240px; padding-top: 2rem; }
+
+.topbar {
+  display: flex; align-items: center; gap: .75rem 1rem; flex-wrap: wrap;
+  padding-bottom: 1rem; margin-bottom: 1.5rem;
+  border-bottom: 1px solid hsl(var(--border));
+}
+.topbar h1 { font-size: 1.35rem; margin: 0; }
+.topbar nav { display: flex; gap: .9rem; flex-wrap: wrap; font-size: .8rem; }
+.topbar nav a { color: hsl(var(--muted-foreground)); }
+.topbar nav a:hover { color: hsl(var(--foreground)); }
+.spacer { flex: 1 1 auto; }
+.keybox { display: flex; align-items: center; gap: .45rem; }
+.keybox label { margin: 0; white-space: nowrap; }
+.keybox input { width: 15rem; }
+
+.cols { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1.25rem; align-items: start; }
+@media (min-width: 1000px) {
+  .cols { grid-template-columns: minmax(0, 1fr) minmax(0, 440px); }
+  .side { position: sticky; top: 1.25rem; }
+}
+
+.card + .card { margin-top: 1rem; }
+.card > h3:first-child { margin-top: 0; }
+.field { margin-bottom: .8rem; }
+.field:last-child { margin-bottom: 0; }
+.fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .8rem; }
+.hint { font-size: .72rem; color: hsl(var(--muted-foreground)); margin-top: .25rem; }
+.req { color: hsl(var(--destructive)); }
+
+.colorpair { display: grid; grid-template-columns: 2.75rem minmax(0, 1fr); gap: .35rem; }
+.colorpair input[type=color] { width: 2.75rem; }
+
+.out pre { white-space: pre-wrap; word-break: break-all; margin: 0; }
+.outhead { display: flex; align-items: center; gap: .5rem; margin: 0 0 .4rem; }
+.outhead .t { font-size: .8rem; font-weight: 600; }
+
+/* A chequerboard so a transparent background is visible as transparency
+ * rather than as whatever the page happens to be painted with. Drawn with a
+ * gradient because the CSP forbids loading an image of any kind. */
+.stage {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 200px; padding: 1rem; border-radius: var(--radius);
+  border: 1px solid hsl(var(--border)); overflow: auto;
+  background-color: hsl(var(--muted));
+  background-image:
+    linear-gradient(45deg, hsl(var(--border)) 25%, transparent 25%),
+    linear-gradient(-45deg, hsl(var(--border)) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, hsl(var(--border)) 75%),
+    linear-gradient(-45deg, transparent 75%, hsl(var(--border)) 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+}
+.stage img { max-width: 100%; height: auto; image-rendering: pixelated; }
+.stage pre {
+  margin: 0; width: 100%; white-space: pre; font-size: .58rem; line-height: 1.05;
+  background: hsl(var(--background));
+}
+.stage.json pre, .stage.text pre {
+  font-size: .72rem; line-height: 1.45; max-height: 22rem;
+  white-space: pre-wrap; word-break: break-all;
+}
+
+.alert-error { border-left-color: hsl(var(--destructive)); }
+.alert dl { margin: .5rem 0 0; display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: .2rem .75rem; }
+.alert dt { color: hsl(var(--muted-foreground)); font-size: .78rem; }
+.alert dd { margin: 0; font-size: .82rem; }
+
+.gradebox { display: flex; align-items: baseline; gap: .6rem; }
+.score { font-size: 1.6rem; font-weight: 700; letter-spacing: -.02em; }
+.grade { font-weight: 600; text-transform: capitalize; }
+.g-excellent, .g-good { color: hsl(var(--success)); }
+.g-risky { color: hsl(var(--warning)); }
+.g-unscannable { color: hsl(var(--destructive)); }
+.sev { font-size: .68rem; text-transform: uppercase; letter-spacing: .05em; font-weight: 600; }
+.sev-info { color: hsl(var(--muted-foreground)); }
+.sev-warn { color: hsl(var(--warning)); }
+.sev-error { color: hsl(var(--destructive)); }
+
+.chips { display: flex; flex-wrap: wrap; gap: .3rem; }
+.chips code { font-size: .72rem; }
+.reftables { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; }
+table.tight td, table.tight th { padding: .4rem .5rem; font-size: .8rem; }
+.scroll { overflow-x: auto; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="topbar">
+    <h1>barqr</h1>
+    <span class="badge" id="version"></span>
+    <nav>
+      <a href="/">Overview</a>
+      <a href="/v1/docs/swagger">Swagger UI</a>
+      <a href="/v1/docs/redoc">ReDoc</a>
+      <a href="/v1/openapi.json">OpenAPI</a>
+    </nav>
+    <span class="spacer"></span>
+    <div class="keybox" id="keybox">
+      <label for="apikey">API key</label>
+      <input type="password" id="apikey" autocomplete="off" spellcheck="false"
+             placeholder="X-API-Key">
+    </div>
+  </header>
+
+  <p class="lead" id="lead"></p>
+
+  <div class="cols">
+
+    <!-- ------------------------------------------------------- controls -->
+    <div>
+
+      <div class="card">
+        <h3>Content</h3>
+        <div class="row" style="margin-bottom:.8rem">
+          <button type="button" class="btn btn-sm" id="mode-raw">Raw data</button>
+          <button type="button" class="btn btn-sm btn-outline" id="mode-builder">Builder</button>
+          <span class="spacer"></span>
+          <button type="button" class="btn btn-sm btn-outline" id="reset">Reset</button>
+        </div>
+
+        <div class="field" id="raw-pane">
+          <label for="data">data</label>
+          <textarea id="data" rows="2" spellcheck="false"></textarea>
+          <div class="hint">The raw string encoded into the code.</div>
+        </div>
+
+        <div id="builder-pane" hidden>
+          <div class="field">
+            <label for="type">type</label>
+            <select id="type"></select>
+            <div class="hint">
+              Each builder spells a payload the way scanners expect it.
+              <button type="button" class="btn btn-sm btn-outline" id="fill"
+                      style="margin-left:.35rem">Use example values</button>
+            </div>
+          </div>
+          <div id="payload-fields"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Symbology &amp; encoding</h3>
+        <div class="field">
+          <label for="symbology">symbology</label>
+          <select id="symbology"></select>
+          <div class="hint" id="symnote"></div>
+        </div>
+        <div class="fields">
+          <div class="field">
+            <label for="ecc">encode.ecc</label>
+            <select id="ecc"></select>
+          </div>
+          <div class="field">
+            <label for="quiet_zone">encode.quiet_zone</label>
+            <input type="number" id="quiet_zone" min="0" max="64" step="1" placeholder="spec default">
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Style</h3>
+        <div class="fields">
+          <div class="field">
+            <label for="module">style.module</label>
+            <select id="module"></select>
+          </div>
+          <div class="field">
+            <label for="eye">style.eye</label>
+            <select id="eye"></select>
+          </div>
+          <div class="field">
+            <label for="eye_ball">style.eye_ball</label>
+            <select id="eye_ball"></select>
+          </div>
+        </div>
+        <div class="fields" style="margin-top:.8rem">
+          <div class="field">
+            <label for="fg_text">style.fg</label>
+            <div class="colorpair">
+              <input type="color" id="fg_color" value="#000000" aria-label="style.fg colour picker">
+              <input type="text" id="fg_text" spellcheck="false" placeholder="default">
+            </div>
+          </div>
+          <div class="field">
+            <label for="bg_text">style.bg</label>
+            <div class="colorpair">
+              <input type="color" id="bg_color" value="#ffffff" aria-label="style.bg colour picker">
+              <input type="text" id="bg_text" spellcheck="false" placeholder="transparent">
+            </div>
+          </div>
+          <div class="field">
+            <label for="eye_fg_text">style.eye_fg</label>
+            <div class="colorpair">
+              <input type="color" id="eye_fg_color" value="#000000" aria-label="style.eye_fg colour picker">
+              <input type="text" id="eye_fg_text" spellcheck="false" placeholder="default">
+            </div>
+          </div>
+        </div>
+        <div class="hint" style="margin-bottom:.8rem">
+          The text box wins: type <code>#rrggbbaa</code> or a name such as
+          <code>transparent</code>. Leave it empty to keep the built-in colour.
+        </div>
+        <div class="field">
+          <label for="caption">style.caption</label>
+          <input type="text" id="caption" spellcheck="false" placeholder="text drawn beneath the code">
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Output</h3>
+        <div class="fields">
+          <div class="field">
+            <label for="format">output.format</label>
+            <select id="format"></select>
+          </div>
+          <div class="field">
+            <label for="scale">output.scale <span class="muted" id="scaleval"></span></label>
+            <input type="range" id="scale" min="1" max="40" step="1">
+          </div>
+        </div>
+        <div class="fields" style="margin-top:.8rem">
+          <div class="field">
+            <label for="size">output.size</label>
+            <input type="number" id="size" min="0" step="any" placeholder="derive from scale">
+          </div>
+          <div class="field">
+            <label for="unit">output.unit</label>
+            <select id="unit"></select>
+          </div>
+          <div class="field">
+            <label for="dpi">output.dpi</label>
+            <input type="number" id="dpi" min="1" max="2400" step="1" placeholder="300">
+          </div>
+          <div class="field">
+            <label for="quality">output.quality</label>
+            <input type="number" id="quality" min="1" max="100" step="1" placeholder="92">
+          </div>
+        </div>
+        <div class="hint">
+          <code>size</code> overrides <code>scale</code>. <code>quality</code> only
+          matters for the lossy formats.
+        </div>
+      </div>
+
+    </div>
+
+    <!-- -------------------------------------------------------- preview -->
+    <aside class="side">
+
+      <div class="card out">
+        <div class="outhead">
+          <span class="t">Request URL</span>
+          <span class="spacer"></span>
+          <button type="button" class="btn btn-sm btn-outline" data-copy="url">Copy</button>
+        </div>
+        <pre id="url"></pre>
+      </div>
+
+      <div class="card">
+        <div class="outhead">
+          <span class="t">Preview</span>
+          <span class="spacer"></span>
+          <span class="badge" id="status"></span>
+        </div>
+        <div class="stage" id="stage"></div>
+        <p class="muted small mono" id="meta" style="margin:.5rem 0 0"></p>
+        <p class="hint" id="note" style="margin:.35rem 0 0"></p>
+        <div id="error"></div>
+      </div>
+
+      <div class="card">
+        <div class="outhead">
+          <span class="t">Scannability</span>
+          <span class="spacer"></span>
+          <span class="muted small">POST /v1/validate</span>
+        </div>
+        <div id="scan"></div>
+      </div>
+
+      <div class="card out">
+        <div class="outhead">
+          <span class="t">curl</span>
+          <span class="spacer"></span>
+          <button type="button" class="btn btn-sm btn-outline" data-copy="curl">Copy</button>
+        </div>
+        <pre id="curl"></pre>
+      </div>
+
+      <div class="card out">
+        <div class="outhead">
+          <span class="t">JSON body</span>
+          <span class="spacer"></span>
+          <button type="button" class="btn btn-sm btn-outline" data-copy="json">Copy</button>
+        </div>
+        <p class="muted small mono" id="jsonhead" style="margin:0 0 .4rem"></p>
+        <pre id="json"></pre>
+      </div>
+
+    </aside>
+  </div>
+
+  <!-- ------------------------------------------------------- reference -->
+  <h2>Reference</h2>
+  <p class="muted small">
+    Every row below is generated from this build's registries — the same ones the
+    router dispatches on. Nothing here is a hand-kept list, so it cannot describe
+    a capability this binary does not have.
+  </p>
+
+  <div class="reftables">
+    <div>
+      <h3>Request fields</h3>
+      <p class="muted small">
+        Dot notation for the query string and multipart forms; the same names nest
+        in a JSON body. <b id="fieldcount"></b>
+      </p>
+      <div class="scroll">
+        <table class="tight"><thead><tr>
+          <th>Field</th><th>Section</th><th>In this request</th>
+        </tr></thead><tbody id="fieldrows"></tbody></table>
+      </div>
+    </div>
+
+    <div>
+      <h3>Presets</h3>
+      <p class="muted small">
+        A preset is a named bundle of these same option keys, expanded by
+        <code>/v1/preset/{name}</code>. Applying one here just fills in the controls.
+      </p>
+      <div class="scroll">
+        <table class="tight"><thead><tr>
+          <th>Name</th><th>Description</th><th>Options</th><th></th>
+        </tr></thead><tbody id="presetrows"></tbody></table>
+      </div>
+      <p class="hint" id="presetnote"></p>
+    </div>
+
+    <div>
+      <h3>Label stock</h3>
+      <p class="muted small">
+        Sheet templates accepted by <code>POST /v1/sheet</code>.
+      </p>
+      <div class="scroll">
+        <table class="tight"><thead><tr>
+          <th>Template</th><th>Description</th><th>Per page</th>
+        </tr></thead><tbody id="templaterows"></tbody></table>
+      </div>
+    </div>
+
+    <div>
+      <h3>Output formats</h3>
+      <div class="scroll">
+        <table class="tight"><thead><tr>
+          <th>Format</th><th>MIME</th><th>Extension</th><th>Kind</th>
+        </tr></thead><tbody id="formatrows"></tbody></table>
+      </div>
+    </div>
+  </div>
+
+  <hr class="sep">
+  <footer><p id="build" class="mono small"></p></footer>
+
+</div>
+
+<script id="barqr-data" type="application/json">{{DATA}}</script>
+<script>
+(function () {
+  "use strict";
+
+  var D = JSON.parse(document.getElementById("barqr-data").textContent);
+  var origin = window.location.origin;
+
+  function $(id) { return document.getElementById(id); }
+  function el(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) { n.className = cls; }
+    if (text !== undefined && text !== null) { n.textContent = String(text); }
+    return n;
+  }
+  function clear(n) { while (n.firstChild) { n.removeChild(n.firstChild); } }
+  function opt(value, label, disabled) {
+    var o = el("option", null, label);
+    o.value = value;
+    if (disabled) { o.disabled = true; }
+    return o;
+  }
+
+  /* ---------------------------------------------------------- API key ---
+   * A browser cannot put a header on a top-level navigation, so the key
+   * travels in the barqr_key cookie for page loads and is re-attached as a
+   * real X-API-Key header on every fetch this page makes. A key that arrived
+   * in the query string is swallowed into the cookie and wiped from the
+   * address bar, so it does not sit in history or get pasted onward. */
+
+  var keybox = $("keybox");
+  var keyInput = $("apikey");
+
+  function readCookie(name) {
+    var parts = document.cookie ? document.cookie.split(";") : [];
+    for (var i = 0; i < parts.length; i++) {
+      var kv = parts[i].split("=");
+      if (kv[0].trim() === name) {
+        try { return decodeURIComponent(kv.slice(1).join("=")); }
+        catch (e) { return kv.slice(1).join("="); }
+      }
+    }
+    return "";
+  }
+  function writeCookie(v) {
+    document.cookie = "barqr_key=" + encodeURIComponent(v) + ";path=/v1;SameSite=Strict";
+  }
+  function session(k, v) {
+    try {
+      if (v === undefined) { return window.sessionStorage.getItem(k) || ""; }
+      window.sessionStorage.setItem(k, v);
+    } catch (e) { /* private mode: the cookie is still the source of truth */ }
+    return v || "";
+  }
+  function apiKey() { return keyInput.value.trim(); }
+  function headers(extra) {
+    var h = extra || {};
+    var k = apiKey();
+    if (k) { h["X-API-Key"] = k; }
+    return h;
+  }
+
+  (function initKey() {
+    if (!D.auth.required) {
+      keybox.hidden = true;
+      keybox.style.display = "none";
+      return;
+    }
+    var fromURL = new URLSearchParams(window.location.search).get("key") || "";
+    var k = fromURL || readCookie("barqr_key") || session("barqr_key");
+    if (k) { keyInput.value = k; writeCookie(k); session("barqr_key", k); }
+    if (fromURL) {
+      window.history.replaceState(null, "", window.location.pathname);
+    }
+    keyInput.addEventListener("change", function () {
+      var v = apiKey();
+      session("barqr_key", v);
+      writeCookie(v);
+      schedule();
+    });
+  })();
+
+  /* -------------------------------------------------------- chrome ------ */
+
+  $("version").textContent = "v" + D.version.version;
+  $("build").textContent =
+    D.version.commit + " · " + D.version.go + " · " + D.version.platform +
+    " · " + D.counts.symbologies + "/" + D.counts.symbologies_total +
+    " symbologies · " + D.counts.builders + " builders · " +
+    D.counts.formats + " formats";
+  $("lead").textContent = "Build a request by clicking. Every control below is a real " +
+    "field on the one request struct, so the URL, the curl line and the JSON body " +
+    "are three spellings of the same thing.";
+
+  /* ------------------------------------------------- control registry ---
+   * Each control announces the dot-notation path it drives and the default
+   * that path already has. Emission is then one rule for every control — a
+   * value is sent only when it is set and differs from the default — which is
+   * what keeps a generated URL short enough to read. It also gives the preset
+   * table a generic way to fill the form in: look the key up, set the value. */
+
+  var controls = {};   // path -> {el, def, num, initial}
+  var order = [];      // paths in emission order
+
+  function reg(path, node, def, num) {
+    controls[path] = { el: node, def: def === undefined ? "" : String(def), num: !!num,
+                       initial: node.value };
+    order.push(path);
+    node.addEventListener("input", schedule);
+    node.addEventListener("change", schedule);
+    return node;
+  }
+
+  /* -------------------------------------------------------- content ----- */
+
+  var mode = "raw";
+  var payloadInputs = [];
+
+  function setMode(m) {
+    mode = m;
+    $("raw-pane").hidden = m !== "raw";
+    $("builder-pane").hidden = m !== "builder";
+    $("mode-raw").className = "btn btn-sm" + (m === "raw" ? "" : " btn-outline");
+    $("mode-builder").className = "btn btn-sm" + (m === "builder" ? "" : " btn-outline");
+    schedule();
+  }
+  $("mode-raw").addEventListener("click", function () { setMode("raw"); });
+  $("mode-builder").addEventListener("click", function () { setMode("builder"); });
+
+  var dataEl = $("data");
+  dataEl.value = "https://example.com";
+  dataEl.addEventListener("input", schedule);
+
+  var typeEl = $("type");
+  D.builders.forEach(function (b) { typeEl.appendChild(opt(b.name, b.name)); });
+  typeEl.addEventListener("change", renderPayloadFields);
+
+  function currentBuilder() {
+    for (var i = 0; i < D.builders.length; i++) {
+      if (D.builders[i].name === typeEl.value) { return D.builders[i]; }
+    }
+    return null;
+  }
+
+  // One labelled input per field the selected builder actually declares. The
+  // list comes from Builder.Fields(), which is the same slice the validator
+  // rejects unknown keys against, so the form cannot offer a field the server
+  // would refuse.
+  function renderPayloadFields() {
+    var host = $("payload-fields");
+    clear(host);
+    payloadInputs = [];
+
+    var b = currentBuilder();
+    if (!b) { schedule(); return; }
+
+    var grid = el("div", "fields");
+    (b.fields || []).forEach(function (f) {
+      var wrap = el("div", "field");
+      var lab = el("label", null, "payload." + f.name);
+      if (f.required) {
+        lab.appendChild(document.createTextNode(" "));
+        lab.appendChild(el("span", "req", "*"));
+      }
+      lab.htmlFor = "pf_" + f.name;
+
+      var input = el("input");
+      input.type = f.type === "number" ? "number" : "text";
+      if (f.type === "number") { input.step = "any"; }
+      input.id = "pf_" + f.name;
+      input.spellcheck = false;
+      input.placeholder = f.example || f.description || "";
+      input.addEventListener("input", schedule);
+
+      wrap.appendChild(lab);
+      wrap.appendChild(input);
+      if (f.description) { wrap.appendChild(el("div", "hint", f.description)); }
+      grid.appendChild(wrap);
+
+      payloadInputs.push({ field: f, el: input });
+    });
+    host.appendChild(grid);
+    schedule();
+  }
+
+  $("fill").addEventListener("click", function () {
+    payloadInputs.forEach(function (p) {
+      if (p.field.example) { p.el.value = p.field.example; }
+    });
+    schedule();
+  });
+  renderPayloadFields();
+
+  /* ------------------------------------------------------ symbology ----- */
+
+  var symEl = $("symbology");
+  D.symbologies.forEach(function (s) {
+    var label = s.name + " — " + s.title;
+    if (!s.available) {
+      label += "  (unavailable: " + (s.reason || "not compiled into this build") + ")";
+    }
+    symEl.appendChild(opt(s.name, label, !s.available));
+  });
+  symEl.value = D.defaults.symbology;
+  symEl.addEventListener("change", function () { syncSymbology(); schedule(); });
+
+  function currentSymbology() {
+    for (var i = 0; i < D.symbologies.length; i++) {
+      if (D.symbologies[i].name === symEl.value) { return D.symbologies[i]; }
+    }
+    return null;
+  }
+
+  var eccEl = $("ecc");
+
+  // The ECC choices belong to the symbology, not to the page: a linear code has
+  // none at all, and the select goes dead rather than offering a level the
+  // encoder would reject.
+  function syncSymbology() {
+    var s = currentSymbology();
+    var levels = (s && s.ecc_levels) || [];
+    var was = eccEl.value;
+
+    clear(eccEl);
+    eccEl.appendChild(opt("", levels.length ? "default (" + D.defaults.ecc + ")" : "not applicable"));
+    levels.forEach(function (l) { eccEl.appendChild(opt(l, l)); });
+    eccEl.disabled = levels.length === 0;
+    eccEl.value = levels.indexOf(was) >= 0 ? was : "";
+
+    var bits = [];
+    if (s) {
+      bits.push(s.kind === "1d" ? "linear" : "matrix");
+      if (s.charset) { bits.push(s.charset); }
+      if (s.fixed_lengths && s.fixed_lengths.length) {
+        bits.push("exactly " + s.fixed_lengths.join(" or ") + " characters");
+      } else if (s.max_length) {
+        bits.push("up to " + s.max_length + " characters");
+      }
+      bits.push("quiet zone " + s.quiet_zone + " modules");
+      if (s.notes) { bits.push(s.notes); }
+    }
+    $("symnote").textContent = bits.join(" · ");
+  }
+  reg("encode.ecc", eccEl, D.defaults.ecc);
+  reg("encode.quiet_zone", $("quiet_zone"), "", true);
+  syncSymbology();
+
+  /* ---------------------------------------------------------- style ----- */
+
+  function shapeSelect(id, path, names) {
+    var node = $(id);
+    node.appendChild(opt("", "default"));
+    names.forEach(function (n) { node.appendChild(opt(n, n)); });
+    return reg(path, node, "");
+  }
+  shapeSelect("module", "style.module", D.styles.module);
+  shapeSelect("eye", "style.eye", D.styles.eye);
+  // Eye frames and eye balls are drawn by the same painter registry, so they
+  // offer the same set; the roles differ, not the shapes.
+  shapeSelect("eye_ball", "style.eye_ball", D.styles.eye);
+
+  function colorPair(name, path) {
+    var text = $(name + "_text");
+    var picker = $(name + "_color");
+    picker.addEventListener("input", function () { text.value = picker.value; schedule(); });
+    text.addEventListener("input", function () {
+      if (/^#[0-9a-f]{6}$/i.test(text.value)) { picker.value = text.value.toLowerCase(); }
+    });
+    return reg(path, text, "");
+  }
+  colorPair("fg", "style.fg");
+  colorPair("bg", "style.bg");
+  colorPair("eye_fg", "style.eye_fg");
+  reg("style.caption", $("caption"), "");
+
+  /* --------------------------------------------------------- output ----- */
+
+  var fmtEl = $("format");
+  D.formats.forEach(function (f) {
+    fmtEl.appendChild(opt(f.name, f.name + " — " + f.mime));
+  });
+  fmtEl.value = D.defaults.format;
+  reg("output.format", fmtEl, D.defaults.format);
+
+  function currentFormat() {
+    for (var i = 0; i < D.formats.length; i++) {
+      if (D.formats[i].name === fmtEl.value) { return D.formats[i]; }
+    }
+    return null;
+  }
+
+  var scaleEl = $("scale");
+  scaleEl.value = D.defaults.scale;
+  scaleEl.addEventListener("input", function () { $("scaleval").textContent = scaleEl.value; });
+  $("scaleval").textContent = scaleEl.value;
+  reg("output.scale", scaleEl, D.defaults.scale, true);
+
+  reg("output.size", $("size"), "", true);
+  // px / mm / in are the units writer.PixelSize accepts. They are the one list
+  // on this page not derived from the payload, because docsPayload() does not
+  // publish them yet — see the note in the report.
+  var unitEl = $("unit");
+  ["", "px", "mm", "in"].forEach(function (u) { unitEl.appendChild(opt(u, u || "default (px)")); });
+  reg("output.unit", unitEl, "");
+  reg("output.dpi", $("dpi"), "", true);
+  reg("output.quality", $("quality"), "", true);
+
+  /* ------------------------------------------------ request assembly ---- */
+
+  function paramList() {
+    var out = [];
+    function push(k, v, num) { out.push({ k: k, v: String(v), num: !!num }); }
+
+    if (mode === "builder") {
+      var b = currentBuilder();
+      if (b) {
+        push("type", b.name);
+        payloadInputs.forEach(function (p) {
+          var v = p.el.value.trim();
+          if (v !== "") { push("payload." + p.field.name, v, p.field.type === "number"); }
+        });
+      }
+    } else if (dataEl.value !== "") {
+      push("data", dataEl.value);
+    }
+
+    order.forEach(function (path) {
+      var c = controls[path];
+      if (c.el.disabled) { return; }
+      var v = String(c.el.value).trim();
+      if (v === "" || v === c.def) { return; }
+      push(path, v, c.num);
+    });
+    return out;
+  }
+
+  // /v1/qr is the dedicated route for the default symbology; everything else
+  // goes through /v1/barcode/{symbology}, which carries the name in the path
+  // and so never needs it as a parameter.
+  function path() {
+    var s = symEl.value;
+    return s === D.defaults.symbology ? "/v1/qr" : "/v1/barcode/" + encodeURIComponent(s);
+  }
+
+  function query(ps) {
+    var parts = ps.map(function (p) {
+      return encodeURIComponent(p.k) + "=" + encodeURIComponent(p.v);
+    });
+    return parts.length ? "?" + parts.join("&") : "";
+  }
+
+  function setPath(obj, dotted, value) {
+    var parts = dotted.split(".");
+    var node = obj;
+    for (var i = 0; i < parts.length - 1; i++) {
+      if (typeof node[parts[i]] !== "object" || node[parts[i]] === null) {
+        node[parts[i]] = {};
+      }
+      node = node[parts[i]];
+    }
+    node[parts[parts.length - 1]] = value;
+  }
+
+  function body(ps, withSymbology) {
+    var o = {};
+    if (withSymbology) { o.symbology = symEl.value; }
+    ps.forEach(function (p) {
+      setPath(o, p.k, p.num ? Number(p.v) : p.v);
+    });
+    return o;
+  }
+
+  function curlLine(url) {
+    var f = currentFormat();
+    var parts = ["curl"];
+    if (D.auth.required) {
+      parts.push("-H 'X-API-Key: " + (apiKey() || "YOUR_KEY") + "'");
+    }
+    parts.push("'" + url + "'");
+    if (f && f.binary) { parts.push("-o barqr." + f.extension); }
+    return parts.join(" \\\n  ");
+  }
+
+  /* --------------------------------------------------------- output ----- */
+
+  var copyables = { url: "", curl: "", json: "" };
+
+  Array.prototype.forEach.call(document.querySelectorAll("[data-copy]"), function (btn) {
+    btn.addEventListener("click", function () {
+      var text = copyables[btn.getAttribute("data-copy")] || "";
+      var done = function () {
+        var was = btn.textContent;
+        btn.textContent = "Copied";
+        setTimeout(function () { btn.textContent = was; }, 1200);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done, function () { fallbackCopy(text, done); });
+      } else {
+        fallbackCopy(text, done);
+      }
+    });
+  });
+
+  function fallbackCopy(text, done) {
+    var ta = el("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "readonly");
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand("copy"); done(); } catch (e) { /* nothing to do */ }
+    document.body.removeChild(ta);
+  }
+
+  /* -------------------------------------------------------- preview ----- */
+
+  var lastObjectURL = null;
+  var inflight = null;
+  var seq = 0;
+
+  // A long session builds hundreds of previews. Each blob holds its bytes
+  // alive until the URL is revoked, so the previous one goes before the next
+  // one is made.
+  function objectURL(blob) {
+    if (lastObjectURL) { URL.revokeObjectURL(lastObjectURL); }
+    lastObjectURL = URL.createObjectURL(blob);
+    return lastObjectURL;
+  }
+
+  function showError(fault, status) {
+    var host = $("error");
+    clear(host);
+    var box = el("div", "alert alert-error");
+    box.appendChild(el("div", "alert-title",
+      (fault && fault.code ? fault.code : "HTTP " + status)));
+    if (fault && fault.message) { box.appendChild(el("div", null, fault.message)); }
+
+    var dl = el("dl");
+    [["field", fault && fault.field], ["expected", fault && fault.expected],
+     ["got", fault && fault.got], ["hint", fault && fault.hint],
+     ["request id", fault && fault.request_id]].forEach(function (row) {
+      if (!row[1]) { return; }
+      dl.appendChild(el("dt", null, row[0]));
+      dl.appendChild(el("dd", row[0] === "hint" ? null : "mono", row[1]));
+    });
+    if (dl.childNodes.length) { box.appendChild(dl); }
+    host.appendChild(box);
+  }
+
+  function run() {
+    var ps = paramList();
+    var url = origin + path() + query(ps);
+
+    copyables.url = url;
+    copyables.curl = curlLine(url);
+    var jsonBody = body(ps, false);
+    copyables.json = JSON.stringify(jsonBody, null, 2);
+
+    $("url").textContent = url;
+    $("curl").textContent = copyables.curl;
+    $("json").textContent = copyables.json;
+    $("jsonhead").textContent = "POST " + path() + "  ·  Content-Type: application/json";
+
+    renderFieldRows(ps);
+
+    var mine = ++seq;
+    if (inflight) { inflight.abort(); }
+    inflight = typeof AbortController === "function" ? new AbortController() : null;
+
+    $("status").textContent = "…";
+    clear($("error"));
+
+    fetch(url, {
+      headers: headers({}),
+      cache: "no-store",
+      signal: inflight ? inflight.signal : undefined
+    }).then(function (res) {
+      if (mine !== seq) { return null; }
+      var ct = res.headers.get("Content-Type") || "";
+      var etag = res.headers.get("ETag") || "";
+      return res.blob().then(function (blob) {
+        if (mine !== seq) { return null; }
+        return present(res, ct, etag, blob);
+      });
+    }).catch(function (err) {
+      if (mine !== seq || (err && err.name === "AbortError")) { return; }
+      $("status").textContent = "network";
+      showError({ code: "NETWORK", message: String(err && err.message ? err.message : err),
+                  hint: "the service may have stopped, or the key was rejected" }, 0);
+    });
+
+    validate(ps, mine);
+  }
+
+  function present(res, ct, etag, blob) {
+    var stage = $("stage");
+    var status = $("status");
+    var note = $("note");
+    clear(stage);
+    stage.className = "stage";
+    note.textContent = "";
+
+    $("meta").textContent =
+      (ct || "unknown type") + "  ·  " + bytes(blob.size) + (etag ? "  ·  " + etag : "");
+    status.textContent = res.status + " " + res.statusText;
+
+    if (!res.ok) {
+      return blob.text().then(function (text) {
+        var fault = null;
+        try { fault = JSON.parse(text).error; } catch (e) { /* not the envelope */ }
+        showError(fault || { code: "HTTP " + res.status, message: text.slice(0, 400) },
+                  res.status);
+      });
+    }
+
+    if (ct.indexOf("image/") === 0) {
+      var img = el("img");
+      img.alt = "the rendered code";
+      img.src = objectURL(blob);
+      stage.appendChild(img);
+      return null;
+    }
+
+    if (ct.indexOf("application/json") === 0) {
+      stage.className = "stage json";
+      return blob.text().then(function (text) {
+        var pre = el("pre", "mono");
+        try { pre.textContent = JSON.stringify(JSON.parse(text), null, 2); }
+        catch (e) { pre.textContent = text; }
+        stage.appendChild(pre);
+      });
+    }
+
+    if (ct.indexOf("text/") === 0) {
+      return blob.text().then(function (text) {
+        if (/\x1b\[/.test(text)) {
+          text = text.replace(/\x1b\[[0-9;]*m/g, "");
+          note.textContent = "ANSI colour escapes stripped for display — the bytes " +
+            "the API returned still carry them, so a terminal renders it in colour.";
+        }
+        // Block art (ascii/unicode/ansi) is many short lines and needs the tiny
+        // monospace grid to look like a code; a datauri or a txt blob is one
+        // long line and wants readable, wrapped text instead.
+        var lines = text.split("\n");
+        stage.className = "stage" + (lines.length > 5 ? "" : " text");
+        stage.appendChild(el("pre", "mono", text));
+      });
+    }
+
+    // Anything else — PDF, EPS — is offered as a download rather than
+    // rendered: an inline PDF viewer would need a plugin surface this page
+    // deliberately does not have.
+    var f = currentFormat();
+    var a = el("a", "btn btn-outline", "Download barqr." + (f ? f.extension : "bin"));
+    a.href = objectURL(blob);
+    a.download = "barqr." + (f ? f.extension : "bin");
+    stage.appendChild(a);
+    note.textContent = ct + " is not rendered in the page. The download is the exact " +
+      "response body.";
+    return null;
+  }
+
+  function bytes(n) {
+    if (n < 1024) { return n + " B"; }
+    if (n < 1024 * 1024) { return (n / 1024).toFixed(1) + " KiB"; }
+    return (n / (1024 * 1024)).toFixed(2) + " MiB";
+  }
+
+  /* --------------------------------------------------- scannability ----- */
+
+  function validate(ps, mine) {
+    var host = $("scan");
+    // /v1/validate has no symbology in its path, so the name has to travel in
+    // the body for a linear code to be checked as itself rather than as a QR.
+    fetch(origin + "/v1/validate", {
+      method: "POST",
+      headers: headers({ "Content-Type": "application/json" }),
+      body: JSON.stringify(body(ps, true)),
+      cache: "no-store"
+    }).then(function (res) {
+      return res.text().then(function (text) { return { res: res, text: text }; });
+    }).then(function (r) {
+      if (mine !== seq) { return; }
+      clear(host);
+      var parsed = null;
+      try { parsed = JSON.parse(r.text); } catch (e) { /* handled below */ }
+
+      if (!r.res.ok) {
+        var f = parsed && parsed.error;
+        host.appendChild(el("p", "muted small",
+          "Not checked: " + (f ? f.code + " — " + f.message : "HTTP " + r.res.status)));
+        return;
+      }
+      renderScannability(host, parsed);
+    }).catch(function () {
+      if (mine !== seq) { return; }
+      clear(host);
+      host.appendChild(el("p", "muted small", "Scannability check unavailable."));
+    });
+  }
+
+  function renderScannability(host, v) {
+    var s = v && v.scannability;
+    if (!s) {
+      host.appendChild(el("p", "muted small", "No verdict returned."));
+      return;
+    }
+
+    var box = el("div", "gradebox");
+    box.appendChild(el("span", "score g-" + s.grade, s.score));
+    box.appendChild(el("span", "grade g-" + s.grade, s.grade));
+    host.appendChild(box);
+
+    var facts = [];
+    if (typeof s.contrast_ratio === "number") {
+      facts.push("contrast " + s.contrast_ratio.toFixed(2) + ":1");
+    }
+    if (typeof s.quiet_zone === "number") { facts.push("quiet zone " + s.quiet_zone); }
+    if (s.inverted) { facts.push("inverted polarity"); }
+    if (v.matrix) { facts.push(v.matrix.cols + "×" + v.matrix.rows + " modules"); }
+    if (v.output_bytes) { facts.push(bytes(v.output_bytes)); }
+    if (v.strict_mode) { facts.push("strict mode: " + v.strict_mode); }
+    host.appendChild(el("p", "muted small mono", facts.join("  ·  ")));
+
+    var issues = s.issues || [];
+    if (!issues.length) {
+      host.appendChild(el("p", "muted small", "No findings — this design should scan."));
+      return;
+    }
+    issues.forEach(function (i) {
+      var box2 = el("div", "alert");
+      if (i.severity === "error") { box2.className = "alert alert-error"; }
+      var head = el("div", "alert-title");
+      head.appendChild(el("span", "sev sev-" + i.severity, i.severity));
+      head.appendChild(document.createTextNode("  " + i.code));
+      box2.appendChild(head);
+      box2.appendChild(el("div", null, i.message));
+      if (i.hint) { box2.appendChild(el("div", "muted small", i.hint)); }
+      host.appendChild(box2);
+    });
+  }
+
+  /* ------------------------------------------------------ reference ----- */
+
+  var fieldRows = [];
+  (function buildFieldTable() {
+    var tbody = $("fieldrows");
+    $("fieldcount").textContent = D.fields.length + " names accepted.";
+    D.fields.forEach(function (name) {
+      var dot = name.indexOf(".");
+      var tr = el("tr");
+      var td = el("td");
+      td.appendChild(el("code", null, name));
+      tr.appendChild(td);
+      tr.appendChild(el("td", "muted small", dot > 0 ? name.slice(0, dot) : "—"));
+      var val = el("td", "mono small muted", "—");
+      tr.appendChild(val);
+      tbody.appendChild(tr);
+      fieldRows.push({ name: name, cell: val });
+    });
+  })();
+
+  function renderFieldRows(ps) {
+    var set = {};
+    ps.forEach(function (p) { set[p.k] = p.v; });
+    fieldRows.forEach(function (row) {
+      var v = set[row.name];
+      // payload.* is an open namespace; show whatever the builder contributed.
+      if (v === undefined && row.name === "payload.<field>") {
+        var used = [];
+        ps.forEach(function (p) {
+          if (p.k.indexOf("payload.") === 0) { used.push(p.k.slice(8) + "=" + p.v); }
+        });
+        v = used.length ? used.join(", ") : undefined;
+      }
+      row.cell.textContent = v === undefined ? "—" : (v.length > 48 ? v.slice(0, 45) + "…" : v);
+      row.cell.className = v === undefined ? "mono small muted" : "mono small";
+    });
+  }
+
+  (function buildPresetTable() {
+    var tbody = $("presetrows");
+    var unapplied = {};
+
+    D.presets.forEach(function (p) {
+      var tr = el("tr");
+      var td0 = el("td");
+      td0.appendChild(el("code", null, p.name));
+      tr.appendChild(td0);
+      tr.appendChild(el("td", "small", p.description || "—"));
+
+      var keys = Object.keys(p.options || {}).sort();
+      var td2 = el("td", "chips");
+      keys.forEach(function (k) {
+        td2.appendChild(el("code", null, k + "=" + p.options[k]));
+        if (!controls[k]) { unapplied[k] = true; }
+      });
+      tr.appendChild(td2);
+
+      var td3 = el("td");
+      var btn = el("button", "btn btn-sm btn-outline", "Apply");
+      btn.type = "button";
+      btn.addEventListener("click", function () { applyPreset(p); });
+      td3.appendChild(btn);
+      tr.appendChild(td3);
+      tbody.appendChild(tr);
+    });
+
+    var missing = Object.keys(unapplied).sort();
+    $("presetnote").textContent = missing.length
+      ? "Applying a preset fills the controls on this page. These keys have no control " +
+        "here and are left out, so a preset using them will look different when the API " +
+        "expands it: " + missing.join(", ") + "."
+      : "Every option key used by these presets has a control on this page.";
+  })();
+
+  function applyPreset(p) {
+    resetControls();
+    Object.keys(p.options || {}).forEach(function (k) {
+      var c = controls[k];
+      if (!c || c.el.disabled) { return; }
+      c.el.value = String(p.options[k]);
+    });
+    $("scaleval").textContent = scaleEl.value;
+    ["fg", "bg", "eye_fg"].forEach(syncPicker);
+    schedule();
+  }
+
+  function syncPicker(name) {
+    var text = $(name + "_text");
+    if (/^#[0-9a-f]{6}$/i.test(text.value)) { $(name + "_color").value = text.value.toLowerCase(); }
+  }
+
+  (function buildTemplateTable() {
+    var tbody = $("templaterows");
+    if (!D.templates.length) {
+      var tr = el("tr");
+      var td = el("td", "muted small", "No sheet templates in this build.");
+      td.colSpan = 3;
+      tr.appendChild(td);
+      tbody.appendChild(tr);
+      return;
+    }
+    D.templates.forEach(function (t) {
+      var tr = el("tr");
+      var td0 = el("td");
+      td0.appendChild(el("code", null, t.name));
+      tr.appendChild(td0);
+      tr.appendChild(el("td", "small", t.title || "—"));
+      tr.appendChild(el("td", "mono small", t.per_page));
+      tbody.appendChild(tr);
+    });
+  })();
+
+  (function buildFormatTable() {
+    var tbody = $("formatrows");
+    D.formats.forEach(function (f) {
+      var tr = el("tr");
+      var td0 = el("td");
+      td0.appendChild(el("code", null, f.name));
+      tr.appendChild(td0);
+      tr.appendChild(el("td", "mono small", f.mime));
+      tr.appendChild(el("td", "mono small", f.extension));
+      tr.appendChild(el("td", "muted small", f.binary ? "binary" : "text"));
+      tbody.appendChild(tr);
+    });
+  })();
+
+  /* ----------------------------------------------------------- reset ---- */
+
+  function resetControls() {
+    order.forEach(function (p) { controls[p].el.value = controls[p].initial; });
+  }
+
+  $("reset").addEventListener("click", function () {
+    resetControls();
+    symEl.value = D.defaults.symbology;
+    syncSymbology();
+    fmtEl.value = D.defaults.format;
+    scaleEl.value = D.defaults.scale;
+    $("scaleval").textContent = scaleEl.value;
+    ["fg", "bg", "eye_fg"].forEach(function (n) {
+      $(n + "_text").value = "";
+    });
+    $("fg_color").value = "#000000";
+    $("bg_color").value = "#ffffff";
+    $("eye_fg_color").value = "#000000";
+    dataEl.value = "https://example.com";
+    typeEl.selectedIndex = 0;
+    renderPayloadFields();
+    setMode("raw");
+  });
+
+  /* ------------------------------------------------------- scheduler ---- */
+
+  var timer = null;
+  function schedule() {
+    if (timer) { clearTimeout(timer); }
+    timer = setTimeout(run, 250);
+  }
+
+  run();
+})();
+</script>
+</body>
+</html>

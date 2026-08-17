@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/el-amin-dev/barqr/internal/builder"
+	"github.com/el-amin-dev/barqr/internal/config"
 	"github.com/el-amin-dev/barqr/internal/encoder"
 	"github.com/el-amin-dev/barqr/internal/render"
 	"github.com/el-amin-dev/barqr/internal/writer"
@@ -29,6 +31,9 @@ type result struct {
 	Format    string
 	// Canvas is the rendered form, kept for /v1/validate diagnostics.
 	Canvas render.Canvas
+	// Report is the scannability verdict for the canvas. It is always
+	// computed, because "warn" has to have something to report.
+	Report render.Report
 }
 
 // build resolves the request's payload into the raw string to encode.
@@ -88,11 +93,22 @@ func (s *Server) build(req Request) (string, error) {
 
 // encodeOpts maps the request onto the encoder's options, filling automatic
 // values from configuration.
-func (s *Server) encodeOpts(req Request) encoder.EncodeOpts {
+//
+// caps is the target symbology's capabilities, because the configured default
+// error-correction level is expressed in QR's vocabulary and does not
+// necessarily mean anything to another symbology. A linear code has no levels
+// at all, and PDF417 numbers its own from "0" to "8" — applying BARQR_DEFAULT_ECC
+// unconditionally made a request that named no options whatsoever fail with
+// UNSUPPORTED_OPTION on nearly every symbology except QR.
+//
+// So the default is applied only when the symbology actually offers it. A
+// symbology with levels of its own and no match picks its own default, which
+// is what leaving ECC empty means to an encoder.
+func (s *Server) encodeOpts(req Request, caps encoder.Capabilities) encoder.EncodeOpts {
 	o := encoder.AutoEncodeOpts()
 
 	o.ECC = req.Encode.ECC
-	if o.ECC == "" {
+	if o.ECC == "" && slices.Contains(caps.ECCLevels, s.cfg.DefaultECC) {
 		o.ECC = s.cfg.DefaultECC
 	}
 	if req.Encode.Version.Set {
@@ -109,7 +125,7 @@ func (s *Server) encodeOpts(req Request) encoder.EncodeOpts {
 
 // style maps the request onto a render style, starting from the plain
 // black-on-white default and overriding only what was asked for.
-func (s *Server) style(req Request) (render.Style, error) {
+func (s *Server) style(req Request, caps encoder.Capabilities) (render.Style, error) {
 	st := render.DefaultStyle()
 
 	if v := req.Style.Module; v != "" {
@@ -147,9 +163,20 @@ func (s *Server) style(req Request) (render.Style, error) {
 	if req.Encode.QuietZone != nil {
 		st.QuietZone = *req.Encode.QuietZone
 	}
+	if v := req.Style.Logo; v != "" && !strings.HasPrefix(v, "data:") {
+		f := newFault(http.StatusNotImplemented, CodeUnsupported,
+			"style.logo must be a data: URI in this build")
+		f.Field = "style.logo"
+		f.Got = "a remote reference"
+		f.Expected = "data:image/png;base64,..."
+		f.Hint = "inline the image as a data URI, or upload it as a multipart " +
+			"field named style.logo; remote fetching is not implemented"
+		return render.Style{}, f
+	}
+
 	// The renderer needs the resolved level to judge whether a logo fits the
 	// error-correction budget; encoder.Matrix does not carry it.
-	st.ECC = s.encodeOpts(req).ECC
+	st.ECC = s.encodeOpts(req, caps).ECC
 	st.BarHeight = req.Style.BarHeight
 	if req.Style.HRI != nil {
 		st.HRI = *req.Style.HRI
@@ -170,7 +197,13 @@ func (s *Server) outputOpts(req Request) writer.OutputOpts {
 	if req.Output.Scale > 0 {
 		o.Scale = req.Output.Scale
 	}
-	if req.Output.Size > 0 {
+	// Clamp before anything multiplies these together. MaxPixels is checked on
+	// the product, and a large enough scale wraps that product to a small
+	// residue, passing the check and then panicking inside image.NewNRGBA.
+	o.Scale = min(o.Scale, maxScale)
+	if req.Output.Size > maxSize {
+		o.Size = maxSize
+	} else if req.Output.Size > 0 {
 		// An explicit size takes precedence over scale in PixelSize, so the
 		// default scale must be cleared or it would win.
 		o.Size = req.Output.Size
@@ -180,7 +213,7 @@ func (s *Server) outputOpts(req Request) writer.OutputOpts {
 		o.Unit = writer.Unit(req.Output.Unit)
 	}
 	if req.Output.DPI > 0 {
-		o.DPI = req.Output.DPI
+		o.DPI = min(req.Output.DPI, maxDPI)
 	}
 	if req.Output.Quality > 0 {
 		o.Quality = req.Output.Quality
@@ -216,7 +249,9 @@ func (s *Server) pipeline(ctx context.Context, req Request) (*result, error) {
 		return nil, f
 	}
 
-	matrix, err := enc.Encode(data, s.encodeOpts(req))
+	caps := enc.Caps()
+
+	matrix, err := enc.Encode(data, s.encodeOpts(req, caps))
 	if err != nil {
 		return nil, err
 	}
@@ -224,7 +259,7 @@ func (s *Server) pipeline(ctx context.Context, req Request) (*result, error) {
 		return nil, timeoutFault()
 	}
 
-	st, err := s.style(req)
+	st, err := s.style(req, caps)
 	if err != nil {
 		return nil, err
 	}
@@ -239,6 +274,15 @@ func (s *Server) pipeline(ctx context.Context, req Request) (*result, error) {
 	}
 	if ctx.Err() != nil {
 		return nil, timeoutFault()
+	}
+
+	// Scannability is judged on every render, not only on /v1/validate: warn
+	// mode needs a verdict to put in the response header, and strict mode needs
+	// one to refuse on. Before this was wired, BARQR_STRICT_SCANNABILITY was an
+	// option that parsed, validated, and then did nothing.
+	report := render.Scannability(canvas)
+	if s.cfg.StrictScannability == config.ScannabilityStrict && !report.OK() {
+		return nil, unscannableFault(report)
 	}
 
 	out := s.outputOpts(req)
@@ -266,8 +310,40 @@ func (s *Server) pipeline(ctx context.Context, req Request) (*result, error) {
 		Symbology:  req.Symbology,
 		Format:     w.Name(),
 		Canvas:     canvas,
+		Report:     report,
 	}, nil
 }
+
+// unscannableFault refuses a render that strict mode judged unreadable.
+//
+// It names the worst finding rather than the whole list: a caller in strict
+// mode needs the one thing to change, and the full report is a /v1/validate
+// call away.
+func unscannableFault(report render.Report) error {
+	f := newFault(http.StatusUnprocessableEntity, CodeUnscannable,
+		"this design is unlikely to scan (score %d/100)", report.Score)
+	f.Field = "style"
+	f.Expected = "a design graded good or better"
+	if len(report.Issues) > 0 {
+		worst := report.Issues[0]
+		f.Message = worst.Message
+		f.Hint = worst.Hint
+		f.Got = worst.Code
+	}
+	return f
+}
+
+// Upper bounds on the sizing inputs.
+//
+// These are not the real limit — BARQR_MAX_CANVAS_PX is — but that limit is
+// checked on a product, and an unbounded factor can wrap the product to a
+// small value that passes. Clamping the factors keeps the arithmetic in a
+// range where the real check means what it says.
+const (
+	maxScale = 1 << 14 // 16384 pixels per module
+	maxDPI   = 1 << 16 // far beyond any imagesetter
+	maxSize  = 1 << 20 // a million units, whatever the unit
+)
 
 // timeoutFault is the response for a request that ran past its deadline.
 func timeoutFault() error {

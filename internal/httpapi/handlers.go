@@ -107,7 +107,7 @@ func (s *Server) handleValidate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	c := res.Canvas
-	report := render.Scannability(c)
+	report := res.Report
 
 	s.noCacheIfPrivate(w)
 	s.writeJSON(w, r, http.StatusOK, map[string]any{
@@ -196,6 +196,16 @@ func (s *Server) serveResult(w http.ResponseWriter, r *http.Request, res *result
 	w.Header().Set("Content-Length", strconv.Itoa(len(res.Body)))
 	w.Header().Set("Content-Disposition", contentDisposition(res.Filename, res.Attachment))
 	setRenderSecurityHeaders(w)
+
+	// In warn mode a risky design still renders, but the caller is told. A
+	// header rather than a body so it works for every output format, including
+	// the binary ones.
+	if s.cfg.StrictScannability != config.ScannabilityOff {
+		w.Header().Set("X-Barqr-Scannability", string(res.Report.Grade))
+		if len(res.Report.Issues) > 0 && res.Report.Grade != render.GradeExcellent {
+			w.Header().Set("X-Barqr-Scannability-Issue", res.Report.Issues[0].Code)
+		}
+	}
 
 	s.cacheable(w)
 

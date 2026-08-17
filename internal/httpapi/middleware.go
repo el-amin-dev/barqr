@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base32"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -168,6 +169,7 @@ func (s *Server) withAuth(next http.Handler) http.Handler {
 		}
 
 		if presented == "" || !s.cfg.AuthorizeKey(presented) {
+			s.penaliseAttempt(r)
 			// A 401 without a WWW-Authenticate challenge: barqr is a machine
 			// API, and a browser popping a basic-auth dialog helps nobody.
 			f := newFault(http.StatusUnauthorized, CodeUnauthorized,
@@ -230,6 +232,44 @@ func (s *Server) withConcurrency(next http.Handler) http.Handler {
 	})
 }
 
+// withAttemptLimit blocks an address that has spent its budget of failed
+// authentication attempts.
+//
+// It runs BEFORE withAuth because withAuth answers 401 without calling the
+// next handler, so a limiter placed after it would never run at all. Without
+// this, any endpoint that checks a key is an unthrottled oracle for guessing
+// one.
+//
+// Crucially it only *peeks*: a request that presents a valid key costs
+// nothing, so a busy legitimate caller is never throttled by this. The budget
+// is spent by penaliseAttempt, called from the failure paths alone.
+func (s *Server) withAttemptLimit(next http.Handler) http.Handler {
+	if s.cfg.AuthMode == config.AuthOpen {
+		return next
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.attempts.blocked(clientAddr(r)) {
+			f := newFault(http.StatusTooManyRequests, CodeRateLimited,
+				"too many failed authentication attempts from this address")
+			f.Hint = "wait a minute before trying another key"
+			w.Header().Set("Retry-After", "60")
+			s.fail(w, r, f)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// penaliseAttempt charges one failed authentication to the caller's address.
+//
+// Every path that rejects a key must call this, or that path becomes the
+// unthrottled way in.
+func (s *Server) penaliseAttempt(r *http.Request) {
+	if s.cfg.AuthMode != config.AuthOpen {
+		s.attempts.allow(clientAddr(r))
+	}
+}
+
 // withRateLimit applies a per-key token bucket.
 //
 // Buckets are keyed by the authenticated key id, or by remote address when
@@ -262,8 +302,11 @@ func (s *Server) withRateLimit(next http.Handler) http.Handler {
 // behind a trusted proxy, and trusting a client-settable header would let
 // anyone reset their own rate limit.
 func clientAddr(r *http.Request) string {
-	host, _, found := strings.Cut(r.RemoteAddr, ":")
-	if !found {
+	// net.SplitHostPort, not a Cut on ":" — an IPv6 address is "[::1]:54321",
+	// and cutting on the first colon collapses every IPv6 client into a single
+	// shared bucket.
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
 		return r.RemoteAddr
 	}
 	return host
@@ -358,6 +401,36 @@ func (l *limiter) allow(key string) bool {
 	}
 	b.tokens--
 	return true
+}
+
+// blocked reports whether the bucket is empty, without consuming from it.
+//
+// The distinction matters: the attempt limiter checks every request but only
+// charges the ones that fail, so a caller with a valid key is never slowed by
+// somebody else guessing badly from the same address.
+func (l *limiter) blocked(key string) bool {
+	if l.rate.Unlimited() {
+		return false
+	}
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	b, ok := l.buckets[key]
+	if !ok {
+		return false
+	}
+
+	capacity := float64(l.rate.Count)
+	perSecond := capacity / l.rate.Per.Seconds()
+	now := l.now()
+
+	// Refill here as well as in allow, so an address that waited out its
+	// penalty is released without needing to spend another token first.
+	b.tokens = min(capacity, b.tokens+now.Sub(b.last).Seconds()*perSecond)
+	b.last = now
+
+	return b.tokens < 1
 }
 
 // sweep drops buckets that have been idle long enough to have refilled, so

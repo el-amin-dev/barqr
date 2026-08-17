@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>barqr — QR codes and barcodes over HTTP</title>
+<style>{{STYLE}}</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>barqr</h1>
+  <p class="lead">QR codes and barcodes over HTTP. One stateless container.</p>
+  <div class="row" id="badges" style="margin-bottom:2rem"></div>
+
+  <p>
+    barqr turns a string into a scannable image. Every option is available as a query
+    parameter, so a barqr URL <em>is</em> the image — paste one straight into an
+    <code>&lt;img src&gt;</code>. The same field names also work as a JSON body or a
+    multipart form, because one decoder handles all three.
+  </p>
+
+  <h2>Documentation</h2>
+  <div class="grid grid-2">
+    <a class="card" href="/v1/docs">
+      <b>Interactive dashboard →</b>
+      <span class="muted small">Build a request by clicking. The URL, the curl command
+        and the code all update live.</span>
+    </a>
+    <a class="card" href="/v1/docs/swagger">
+      <b>Swagger UI →</b>
+      <span class="muted small">Try every endpoint from the browser.</span>
+    </a>
+    <a class="card" href="/v1/docs/redoc">
+      <b>ReDoc →</b>
+      <span class="muted small">The full reference, laid out for reading.</span>
+    </a>
+    <a class="card" href="/v1/openapi.json">
+      <b>OpenAPI 3.1 →</b>
+      <span class="muted small">Generated from the live registries. Feed it to your
+        client generator.</span>
+    </a>
+  </div>
+  <p class="muted small" id="authnote" style="margin-top:.9rem"></p>
+
+  <h2>Quick start</h2>
+  <pre id="quickstart"></pre>
+  <p>See it in your terminal, no browser needed:</p>
+  <pre id="terminal"></pre>
+
+  <h2>Endpoints</h2>
+  <p class="muted small">
+    Generated from this build's router — not a hand-written list, so it cannot describe
+    an endpoint that is not here.
+  </p>
+  <table><thead><tr><th>Route</th><th>Methods</th><th>What it does</th></tr></thead>
+    <tbody id="endpoints"></tbody></table>
+
+  <h2>What this build can do</h2>
+  <div class="grid grid-2" id="caps"></div>
+
+  <div class="alert">
+    <div class="alert-title">Do not expose this service directly to the internet.</div>
+    barqr is built to sit on an internal network and answer requests from your own code.
+    It binds <code>127.0.0.1</code> by default and refuses to start on a wider address
+    without API keys — but that guard is a safety net, not a licence to publish it.
+  </div>
+
+  <hr class="sep">
+  <footer>
+    <p>
+      Built by
+      <a href="https://github.com/el-amin-dev" rel="noreferrer">Mohamed El Amin BOUCHAREB</a>
+      · <a href="https://github.com/el-amin-dev/barqr" rel="noreferrer">source on GitHub</a>
+      · Apache-2.0
+      · <span id="build" class="mono"></span>
+    </p>
+  </footer>
+
+</div>
+
+<script id="barqr-data" type="application/json">{{DATA}}</script>
+<script>
+(function () {
+  "use strict";
+  var D = JSON.parse(document.getElementById("barqr-data").textContent);
+  var origin = window.location.origin;
+
+  function el(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text !== undefined) n.textContent = text;
+    return n;
+  }
+
+  // Badges: counts come from the registries, never from a number typed here.
+  var badges = document.getElementById("badges");
+  [
+    "v" + D.version.version,
+    D.counts.symbologies + " symbologies",
+    D.counts.builders + " payload builders",
+    D.counts.formats + " output formats"
+  ].forEach(function (t) { badges.appendChild(el("span", "badge", t)); });
+
+  document.getElementById("build").textContent =
+    D.version.commit + " · " + D.version.go + " · " + D.version.platform;
+
+  var keyHeader = D.auth.required ? "-H 'X-API-Key: YOUR_KEY' \\\n  " : "";
+  document.getElementById("quickstart").textContent =
+    "curl " + keyHeader + "'" + origin + "/v1/qr?data=https://example.com' -o qr.png";
+  document.getElementById("terminal").textContent =
+    "curl " + keyHeader + "'" + origin + "/v1/qr?data=hello&output.format=unicode'";
+
+  document.getElementById("authnote").textContent = D.auth.required
+    ? "The documentation needs your API key. The pages ask for it once and remember it for the session."
+    : "This instance runs with BARQR_AUTH_MODE=open, so no key is required.";
+
+  // Endpoints, straight from the generated OpenAPI paths.
+  var tbody = document.getElementById("endpoints");
+  D.endpoints.forEach(function (e) {
+    var tr = el("tr");
+    var td = el("td");
+    td.appendChild(el("code", null, e.route));
+    tr.appendChild(td);
+    tr.appendChild(el("td", "muted small", e.methods.join(" · ")));
+    tr.appendChild(el("td", "small", e.summary || "—"));
+    tbody.appendChild(tr);
+  });
+
+  // Capability cards.
+  var available = D.symbologies.filter(function (s) { return s.available; });
+  var unavailable = D.symbologies.filter(function (s) { return !s.available; });
+
+  function card(title, items) {
+    var c = el("div", "card");
+    c.appendChild(el("b", null, title));
+    c.appendChild(el("span", "muted small mono", items.join(" · ")));
+    return c;
+  }
+  var caps = document.getElementById("caps");
+  caps.appendChild(card("2D symbologies",
+    available.filter(function (s) { return s.kind === "2d"; }).map(function (s) { return s.name; })));
+  caps.appendChild(card("1D symbologies",
+    available.filter(function (s) { return s.kind === "1d"; }).map(function (s) { return s.name; })));
+  caps.appendChild(card("Payload builders",
+    D.builders.map(function (b) { return b.name; })));
+  caps.appendChild(card("Output formats",
+    D.formats.map(function (f) { return f.name; })));
+  caps.appendChild(card("Module shapes", D.styles.module));
+  caps.appendChild(card("Presets", D.presets.map(function (p) { return p.name; })));
+
+  if (unavailable.length) {
+    var c = el("div", "card");
+    c.appendChild(el("b", null, "Not in this build (" + unavailable.length + ")"));
+    c.appendChild(el("span", "muted small",
+      "Listed rather than hidden, so you can tell “does not exist” from “not compiled in”: "));
+    c.appendChild(el("span", "muted small mono",
+      unavailable.map(function (s) { return s.name; }).join(" · ")));
+    c.style.gridColumn = "1 / -1";
+    caps.appendChild(c);
+  }
+})();
+</script>
+</body>
+</html>

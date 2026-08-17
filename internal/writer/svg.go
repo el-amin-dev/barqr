@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/xml"
 	"fmt"
+	"image"
 	"image/color"
 	"math"
 	"strconv"
@@ -21,6 +22,29 @@ const FormatSVG = "svg"
 const (
 	svgEyeModules    = 7
 	svgEyeBallOffset = 2
+)
+
+// svgGradientID is the id the gradient definition is emitted under.
+//
+// It is a fixed string rather than anything derived from the request: a
+// document holds exactly one gradient, and an id built from caller data is an
+// XML injection waiting for the one writer that forgets to sanitise it.
+const svgGradientID = "barqr-gradient"
+
+// Caption metrics, in module units.
+const (
+	// svgMonoAdvance is the advance width of a monospace glyph as a fraction
+	// of the font size. It is close enough to 0.6 in every monospace face that
+	// ships by default to size text without measuring a font barqr does not
+	// carry.
+	svgMonoAdvance = 0.6
+	// svgCaptionFill is how much of the caption band the text is allowed to
+	// take vertically, leaving the rest as the breathing space that stops a
+	// caption from touching the frame above and below it.
+	svgCaptionFill = 0.55
+	// svgCaptionBaseline lifts the baseline from the band's centre by roughly
+	// half a cap height, which is what centres text optically.
+	svgCaptionBaseline = 0.35
 )
 
 func init() { Register(svgWriter{}) }
@@ -73,14 +97,31 @@ func (svgWriter) Write(c render.Canvas, o OutputOpts) ([]byte, error) {
 			`viewBox="0 0 %d %d" shape-rendering="crispEdges">`+"\n",
 		w, h, c.Cols, viewRows)
 
+	// The gradient is declared before anything can reference it. SVG resolves
+	// a url() forward as well, but a <defs> at the top is what every editor and
+	// optimiser expects to find and is cheaper for a streaming parser.
+	if g := c.Style.Gradient; g != nil {
+		fmt.Fprintf(&b, `<defs>%s</defs>`+"\n", g.SVGDef(svgGradientID))
+	}
+
 	if c.Style.BG.A != 0 {
 		fmt.Fprintf(&b, `<rect width="%d" height="%d" %s/>`+"\n",
 			c.Cols, viewRows, svgFill(c.Style.BG))
 	}
 
+	// Frame, then code, then logo, then caption: painter's order, so a logo
+	// covers the modules it sits on and no text ends up underneath it.
+	svgFrame(&b, c)
+
 	eyes := svgEyeOrigins(c)
 	svgModulePath(&b, c, modules, eyes != nil)
 	if err := svgEyePaths(&b, c, eyes); err != nil {
+		return nil, err
+	}
+	if err := svgLogo(&b, c); err != nil {
+		return nil, err
+	}
+	if err := svgCaption(&b, c); err != nil {
 		return nil, err
 	}
 	if err := svgHRI(&b, c); err != nil {
@@ -118,7 +159,139 @@ func svgModulePath(b *bytes.Buffer, c render.Canvas, p render.ModulePainter, ski
 	if d.Len() == 0 {
 		return
 	}
-	fmt.Fprintf(b, `<path %s d="%s"/>`+"\n", svgFill(c.Style.FG), d.String())
+
+	// A gradient replaces the flat foreground for data modules only, which is
+	// exactly the set this path holds: the finder patterns are painted by
+	// svgEyePaths in their own flat colour, because a ramp that runs light
+	// across an eye costs the scanner the landmark it locates the symbol with.
+	fill := svgFill(c.Style.FG)
+	if c.Style.Gradient != nil {
+		fill = `fill="url(#` + svgGradientID + `)"`
+	}
+	fmt.Fprintf(b, `<path %s d="%s"/>`+"\n", fill, d.String())
+}
+
+// svgFrame writes the frame: its stroke, the caption bar a banner or bubble
+// carries, and a bubble's tail. Nothing is written when the style has no frame.
+func svgFrame(b *bytes.Buffer, c render.Canvas) {
+	f, ok := resolveFrame(c)
+	if !ok {
+		return
+	}
+
+	// The outer boundary and the square hole go in one path under the even-odd
+	// rule. A stroked outline would be centred on its own path and spill half
+	// its width outside the modules the renderer reserved, which on the inside
+	// edge means ink in the quiet zone.
+	fmt.Fprintf(b, `<path %s fill-rule="evenodd" d="%s%s"/>`+"\n",
+		svgFill(f.ink), svgRoundRectPath(f.outer, f.radius), svgRectPath(f.inner))
+
+	// The bar and the tail are paths rather than <rect>/<polygon> so that the
+	// whole frame is one kind of element to style, clip, or strip.
+	if !f.band.Empty() {
+		fmt.Fprintf(b, `<path %s d="%s"/>`+"\n", svgFill(f.ink), svgRectPath(f.band))
+	}
+	if !f.tail.Empty() {
+		fmt.Fprintf(b, `<path %s d="%s"/>`+"\n", svgFill(f.ink), svgTailPath(f.tail))
+	}
+}
+
+// svgRectPath is a closed rectangular subpath in module units.
+func svgRectPath(r image.Rectangle) string {
+	return fmt.Sprintf("M%d %dH%dV%dH%dZ", r.Min.X, r.Min.Y, r.Max.X, r.Max.Y, r.Min.X)
+}
+
+// svgRoundRectPath is a rectangle with quarter-circle corners, wound clockwise
+// so the arc sweep flag is 1 throughout.
+func svgRoundRectPath(r image.Rectangle, radius int) string {
+	if radius <= 0 {
+		return svgRectPath(r)
+	}
+	return fmt.Sprintf(
+		"M%d %dH%dA%d %d 0 0 1 %d %dV%dA%d %d 0 0 1 %d %dH%dA%d %d 0 0 1 %d %dV%dA%d %d 0 0 1 %d %dZ",
+		r.Min.X+radius, r.Min.Y, r.Max.X-radius,
+		radius, radius, r.Max.X, r.Min.Y+radius,
+		r.Max.Y-radius,
+		radius, radius, r.Max.X-radius, r.Max.Y,
+		r.Min.X+radius,
+		radius, radius, r.Min.X, r.Max.Y-radius,
+		r.Min.Y+radius,
+		radius, radius, r.Min.X+radius, r.Min.Y)
+}
+
+// svgTailPath is the speech-bubble tail: a triangle narrowing to a point on the
+// bottom edge of its box.
+func svgTailPath(r image.Rectangle) string {
+	return fmt.Sprintf("M%d %dH%dL%d %dZ",
+		r.Min.X, r.Min.Y, r.Max.X, r.Min.X+r.Dx()/2, r.Max.Y)
+}
+
+// svgLogo writes the logo as an <image> over the area the renderer reserved.
+func svgLogo(b *bytes.Buffer, c render.Canvas) error {
+	l := c.Style.Logo
+	if l == nil || l.Image == nil {
+		return nil
+	}
+	r, ok := c.LogoRect()
+	if !ok || r.Empty() {
+		return nil
+	}
+
+	uri, err := logoDataURI(l.Image)
+	if err != nil {
+		return err
+	}
+
+	// xMidYMid meet fits the artwork inside the box without distorting it. The
+	// renderer already sized the box from the image's own aspect ratio, so the
+	// fit is exact in practice and letterboxes only when a caller supplied the
+	// geometry and the bitmap separately.
+	fmt.Fprintf(b, `<image x="%d" y="%d" width="%d" height="%d" `+
+		`preserveAspectRatio="xMidYMid meet" href="%s"/>`+"\n",
+		r.Min.X, r.Min.Y, r.Dx(), r.Dy(), uri)
+	return nil
+}
+
+// svgCaption writes the caption centred in its band.
+//
+// Like the human-readable line it is caller-supplied text, so it is escaped
+// through encoding/xml rather than concatenated: an unescaped '<' turns a label
+// into markup inside a document that is often served inline.
+func svgCaption(b *bytes.Buffer, c render.Canvas) error {
+	spec, ok := resolveCaption(c)
+	if !ok {
+		return nil
+	}
+	size := svgCaptionSize(spec)
+
+	fmt.Fprintf(b, `<text x="%s" y="%s" font-family="monospace" font-size="%s" `+
+		`text-anchor="middle" %s>`,
+		svgNum(float64(spec.rect.Min.X)+float64(spec.rect.Dx())/2),
+		svgNum(float64(spec.rect.Min.Y)+float64(spec.rect.Dy())/2+size*svgCaptionBaseline),
+		svgNum(size),
+		svgFill(spec.ink))
+
+	if err := xml.EscapeText(b, []byte(spec.text)); err != nil {
+		return fmt.Errorf("%w: escaping the caption: %w", ErrInvalidOutput, err)
+	}
+
+	b.WriteString("</text>\n")
+	return nil
+}
+
+// svgCaptionSize picks a font size in modules that keeps the caption inside its
+// band both ways: the band's height caps it, and a long caption shrinks to the
+// band's width rather than running out through the frame.
+func svgCaptionSize(spec captionSpec) float64 {
+	size := float64(spec.rect.Dy()) * svgCaptionFill
+	if n := len([]rune(spec.text)); n > 0 {
+		size = min(size, float64(spec.rect.Dx())/(svgMonoAdvance*float64(n)))
+	}
+	// Three decimals is finer than any renderer resolves at these sizes and
+	// keeps the document free of float noise. It rounds down rather than to
+	// nearest so that trimming the number can never push the text back over the
+	// width it was just fitted to.
+	return math.Floor(size*1000) / 1000
 }
 
 // svgEyePaths writes the three finder patterns as two paths: one for the
@@ -182,23 +355,25 @@ func svgHRI(b *bytes.Buffer, c render.Canvas) error {
 // svgEyeOrigins returns the top-left module of each finder pattern in canvas
 // coordinates, or nil when this canvas has none.
 //
-// The positions are computed from the quiet zone rather than found by scanning
-// for connected dark regions: the three corners are fixed by the QR
+// The positions are computed from the symbol's own rectangle rather than found
+// by scanning for connected dark regions: the three corners are fixed by the QR
 // specification, and a scan would also match a 7x7 ring that data modules
-// happened to form. The role marked by the renderer is then the authority on
-// whether this symbology has finder patterns at all — painting an eye shape
-// over the live modules of a Data Matrix or a linear code would destroy it.
+// happened to form. SymbolRect rather than the quiet zone alone, because a
+// frame and a caption band move the symbol as well, and origins derived from
+// the margin would land on the frame the moment one is set. The role marked by
+// the renderer is then the authority on whether this symbology has finder
+// patterns at all — painting an eye shape over the live modules of a Data
+// Matrix or a linear code would destroy it.
 func svgEyeOrigins(c render.Canvas) [][2]int {
-	q := c.QuietZone
-	cols, rows := c.Cols-2*q, c.Rows-2*q
-	if q < 0 || cols < svgEyeModules || rows < svgEyeModules {
+	sym := c.SymbolRect()
+	if sym.Dx() < svgEyeModules || sym.Dy() < svgEyeModules {
 		return nil
 	}
 
 	origins := [][2]int{
-		{q, q},                        // top-left
-		{q + cols - svgEyeModules, q}, // top-right
-		{q, q + rows - svgEyeModules}, // bottom-left
+		{sym.Min.X, sym.Min.Y},                 // top-left
+		{sym.Max.X - svgEyeModules, sym.Min.Y}, // top-right
+		{sym.Min.X, sym.Max.Y - svgEyeModules}, // bottom-left
 	}
 	for _, e := range origins {
 		if c.Role(e[0], e[1]) != render.RoleEyeFrame {

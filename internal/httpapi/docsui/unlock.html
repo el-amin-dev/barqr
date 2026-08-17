@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>barqr — API key required</title>
+<style>{{STYLE}}</style>
+
+<style>
+/* The page is one card and nothing else, so it centres in the viewport rather
+   than sitting under a header the visitor cannot use yet. */
+.unlock {
+  min-height: 100vh; display: flex; align-items: center; justify-content: center;
+  padding: 2.5rem 1.25rem;
+}
+.unlock .card { width: 100%; max-width: 27rem; padding: 1.6rem 1.75rem 1.75rem; }
+.unlock h1 { font-size: 1.6rem; }
+.unlock form { margin: 1.25rem 0 0; }
+.unlock .btn { width: 100%; margin-top: .8rem; }
+.unlock pre { margin-top: .6rem; }
+.unlock .sep { margin: 1.6rem 0 1.1rem; }
+.alert-error { border-left-color: hsl(var(--destructive)); margin: 1.1rem 0 0; }
+</style>
+</head>
+<body>
+
+<main class="unlock">
+  <div class="card">
+
+    <h1>barqr</h1>
+    <p class="muted small" style="margin-bottom:0">
+      This instance runs with <code>BARQR_AUTH_MODE=required</code>, so the documentation
+      is behind the same API key as the rest of the service.
+    </p>
+
+    <!-- Hidden until the script below finds a rejected key in the URL. -->
+    <div class="alert alert-error" id="rejected" hidden>
+      <div class="alert-title">That key was not accepted.</div>
+      <span class="small">The value in the link did not match any key this container
+        was started with. Check it for a stray space or a truncated copy.</span>
+    </div>
+
+    <!--
+      No action attribute: the form posts back to whichever docs page was being
+      opened, so unlocking lands on the page that was actually wanted rather
+      than bouncing everyone to the dashboard.
+    -->
+    <form method="post">
+      <label for="key">API key</label>
+      <input id="key" name="key" type="password" required autofocus
+             autocomplete="current-password" spellcheck="false"
+             placeholder="dev-key">
+      <button class="btn" type="submit">Unlock the documentation</button>
+    </form>
+
+    <p class="muted small" style="margin:.7rem 0 0">
+      The key is stored in a cookie scoped to <code>/v1</code> for eight hours, so the
+      docs pages and their “try it” calls can use it without asking again.
+    </p>
+
+    <hr class="sep">
+
+    <h3 style="margin-top:0">Where does this key come from?</h3>
+    <p class="small">
+      It is not an account and there is nothing to sign up for. The key is one of the
+      comma-separated values in <code>BARQR_API_KEYS</code>, the environment variable
+      whoever started this container chose. If that was you, it is in your run command:
+    </p>
+<pre>docker run --rm -p 8080:8080 \
+  -e BARQR_API_KEYS=dev-key \
+  barqr</pre>
+    <p class="small muted">
+      With that command the key is <code>dev-key</code>. If barqr runs under compose or
+      Kubernetes, look for <code>BARQR_API_KEYS</code> in the manifest or in the secret it
+      references. Any one of the listed keys works. Setting
+      <code>BARQR_AUTH_MODE=open</code> instead disables authentication altogether —
+      reasonable on a laptop, not on a shared network.
+    </p>
+
+    <p class="small muted" style="margin-bottom:0">
+      No key is needed for <code>/v1/healthz</code>, <code>/v1/readyz</code> or
+      <code>/v1/version</code> — a probe cannot hold one — nor for the
+      <a href="/">landing page</a>, which is why you can still read that one.
+    </p>
+
+  </div>
+</main>
+
+<script>
+(function () {
+  "use strict";
+
+  var params = new URLSearchParams(window.location.search);
+  if (!params.has("key")) {
+    return;
+  }
+
+  // Arriving here with ?key= still in the URL means the key travelled and was
+  // refused; a correct one would have been swapped for a cookie and served a
+  // page. Saying so beats re-rendering an identical empty form.
+  document.getElementById("rejected").hidden = false;
+
+  // Drop the rejected key from the address bar so it is not resubmitted by a
+  // reload, kept in history, or pasted onwards in a "this link is broken" message.
+  params.delete("key");
+  var query = params.toString();
+  window.history.replaceState(null, "",
+    window.location.pathname + (query ? "?" + query : ""));
+})();
+</script>
+</body>
+</html>

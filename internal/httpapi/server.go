@@ -41,6 +41,9 @@ type Server struct {
 	sem chan struct{}
 	// limiter holds the per-key token buckets.
 	limiter *limiter
+	// attempts throttles authentication attempts by source address, before a
+	// key is checked at all.
+	attempts *limiter
 	// metrics is nil when BARQR_METRICS is false.
 	metrics *metrics
 	// presets is resolved once at boot: the built-ins, overlaid with whatever
@@ -60,6 +63,9 @@ func New(cfg *config.Config, log *slog.Logger) *Server {
 		log:     log,
 		sem:     make(chan struct{}, cfg.Concurrency),
 		limiter: newLimiter(cfg.RateLimit),
+		// Ten guesses a minute from one address is generous for a human
+		// pasting a key and useless for a dictionary.
+		attempts: newLimiter(config.Rate{Count: 10, Per: time.Minute}),
 	}
 	if cfg.Metrics {
 		s.metrics = newMetrics()
@@ -140,6 +146,7 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 				return
 			case <-sweeper.C:
 				s.limiter.sweep()
+				s.attempts.sweep()
 			}
 		}
 	}()

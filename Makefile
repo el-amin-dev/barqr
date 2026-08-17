@@ -234,6 +234,34 @@ smoke: ## Start the built image and exercise it over HTTP
 	echo "==> smoke: an unknown field is rejected with a suggestion"; \
 	curl -s $$auth "$$base/qr?data=hi&output.formt=png" | grep -q 'did you mean' \
 		|| fail "no closest-match suggestion on an unknown field"; \
+	echo "==> smoke: every symbology renders with no options at all"; \
+	for sym in qr datamatrix aztec pdf417 code128 code39 code93 codabar \
+	           ean13 ean8 upca upce itf itf14 2of5; do \
+		case $$sym in \
+			ean13) d=590123412345;; ean8) d=9638507;; upca) d=03600029145;; \
+			upce) d=0425261;; itf14) d=1234567890123;; codabar) d=A12345B;; \
+			*) d=12345678;; \
+		esac; \
+		curl -fsS $$auth -o /dev/null "$$base/barcode/$$sym?data=$$d" \
+			|| fail "$$sym did not render on a request naming no options"; \
+	done; \
+	echo "==> smoke: the location builder resolves an address"; \
+	curl -fsS $$auth --data-urlencode 'payload.location=45 Rue Didouche Mourad, Alger' \
+		-G "$$base/build/location" | grep -q 'google.com/maps' || fail "location builder"; \
+	echo "==> smoke: GET / is public and names the developer"; \
+	curl -fsS localhost:$(SMOKE_PORT)/ | grep -q 'el-amin-dev' || fail "landing page"; \
+	echo "==> smoke: the public landing page leaks no configuration"; \
+	curl -fsS localhost:$(SMOKE_PORT)/ | grep -q 'max_canvas_px' \
+		&& fail "the landing page exposed the instance limits"; \
+	echo "==> smoke: docs need a key, and say so in HTML to a browser"; \
+	test "$$(curl -s -o /dev/null -w '%{http_code}' -H 'Accept: text/html' $$base/docs)" = 401 \
+		|| fail "docs served without a key"; \
+	curl -fsS $$auth $$base/docs | grep -q 'barqr-data' || fail "docs dashboard"; \
+	curl -fsS $$auth $$base/docs/swagger | grep -q 'swagger-ui' || fail "swagger view"; \
+	curl -fsS $$auth $$base/docs/redoc | grep -q -i 'redoc' || fail "redoc view"; \
+	echo "==> smoke: /metrics requires a key"; \
+	test "$$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:$(SMOKE_PORT)/metrics)" = 401 \
+		|| fail "metrics served without a key"; \
 	echo "==> smoke: GET /v1/nope is 404"; \
 	test "$$(curl -s -o /dev/null -w '%{http_code}' $$base/nope)" = 404 || fail "404"; \
 	echo "==> smoke: image runs as an unprivileged user"; \

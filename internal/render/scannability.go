@@ -278,6 +278,23 @@ func checkLogo(c Canvas, add func(Issue, int)) {
 
 	ecc := strings.ToUpper(strings.TrimSpace(c.Style.ECC))
 	switch {
+	// Level L reserves about 7% for recovery, and a logo plus its padding
+	// exceeds that on a small symbol before it is even visible. Measured
+	// end to end by rendering a PNG and decoding it back: at L, an excavated
+	// logo failed to scan at every legal scale from 0.10 to 0.35 — there is
+	// no size at which this combination works, so it is an error rather than
+	// a judgement call.
+	case ecc == "L":
+		add(Issue{
+			Code:     "LOGO_AT_LOWEST_ECC",
+			Severity: SeverityError,
+			Message: fmt.Sprintf(
+				"a logo covering %.0f%% of the symbol will not scan at error-correction level L",
+				cover*100),
+			Hint: "re-encode at ECC level H, or drop the logo; level L has no " +
+				"recovery budget to spare for one at any size",
+		}, 80)
+
 	case cover > logoCoverageError:
 		add(Issue{
 			Code:     "LOGO_TOO_LARGE",
@@ -302,6 +319,17 @@ func checkLogo(c Canvas, add func(Issue, int)) {
 				cover*100, level),
 			Hint: "re-encode at ECC level H, or shrink the logo below 8% of the symbol area",
 		}, 30)
+
+	case cover > logoCoverageWarn/2 && (ecc == "M" || ecc == "Q"):
+		// Measured: M and Q both carry a default-sized logo but neither
+		// survives one at 0.30 of the width. Q buys nothing over M here.
+		add(Issue{
+			Code:     "LOGO_NEAR_ECC_BUDGET",
+			Severity: SeverityInfo,
+			Message: fmt.Sprintf(
+				"the logo covers %.0f%% of the symbol at level %s", cover*100, ecc),
+			Hint: "level H is the only level with headroom for a larger logo",
+		}, 0)
 
 	case cover > logoCoverageWarn:
 		add(Issue{

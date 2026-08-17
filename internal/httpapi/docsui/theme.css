@@ -1,0 +1,396 @@
+/* barqr documentation theme — Material Design 3.
+ *
+ * The GM3 token set Google uses across Cloud Console and Android, on the blue
+ * tonal palette rather than the purple baseline, so the pages feel like the
+ * rest of that ecosystem rather than like a generic component library.
+ *
+ * There is no theme toggle on purpose: the pages follow prefers-color-scheme
+ * and nothing else, so they match whatever the operator's system already does
+ * and there is no preference to store, sync, or get wrong.
+ *
+ * Mobile first. Every rule here is the small-screen rule; the media queries
+ * only ever scale up.
+ *
+ * This file is injected into every page rather than linked, so the public
+ * landing page and the key-gated docs pages share one stylesheet without one
+ * of them needing an API key to render correctly.
+ */
+
+:root {
+  /* --- MD3 colour roles, light ------------------------------------------ */
+  --md-primary: #0b57d0;
+  --md-on-primary: #ffffff;
+  --md-primary-container: #d3e3fd;
+  --md-on-primary-container: #041e49;
+  --md-secondary: #00639b;
+  --md-secondary-container: #c2e7ff;
+  --md-on-secondary-container: #001d35;
+  --md-tertiary: #146c2e;
+  --md-tertiary-container: #c4eed0;
+  --md-on-tertiary-container: #072711;
+  --md-error: #b3261e;
+  --md-on-error: #ffffff;
+  --md-error-container: #f9dedc;
+  --md-on-error-container: #410e0b;
+  --md-warning: #a05a00;
+  --md-warning-container: #ffdfa8;
+
+  --md-surface: #f8fafd;
+  --md-surface-container-lowest: #ffffff;
+  --md-surface-container-low: #f0f4f9;
+  --md-surface-container: #eaeef6;
+  --md-surface-container-high: #e4e9f1;
+  --md-surface-container-highest: #dde3ea;
+  --md-on-surface: #1f1f1f;
+  --md-on-surface-variant: #444746;
+  --md-outline: #747775;
+  --md-outline-variant: #c4c7c5;
+  --md-inverse-surface: #303030;
+  --md-inverse-on-surface: #f2f2f2;
+
+  /* --- shape (MD3 corner scale) ----------------------------------------- */
+  --md-corner-xs: 4px;
+  --md-corner-s: 8px;
+  --md-corner-m: 12px;
+  --md-corner-l: 16px;
+  --md-corner-xl: 28px;
+  --md-corner-full: 9999px;
+
+  /* --- elevation --------------------------------------------------------- */
+  --md-elev-1: 0 1px 2px rgba(0, 0, 0, .3), 0 1px 3px 1px rgba(0, 0, 0, .15);
+  --md-elev-2: 0 1px 2px rgba(0, 0, 0, .3), 0 2px 6px 2px rgba(0, 0, 0, .15);
+  --md-elev-3: 0 4px 8px 3px rgba(0, 0, 0, .15), 0 1px 3px rgba(0, 0, 0, .3);
+
+  /* State-layer opacities, straight from the MD3 spec. */
+  --md-state-hover: .08;
+  --md-state-focus: .10;
+  --md-state-press: .10;
+
+  /* --- motion ------------------------------------------------------------ */
+  --md-ease-standard: cubic-bezier(.2, 0, 0, 1);
+  --md-dur-short: 150ms;
+  --md-dur-medium: 250ms;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --md-primary: #a8c7fa;
+    --md-on-primary: #062e6f;
+    --md-primary-container: #0842a0;
+    --md-on-primary-container: #d3e3fd;
+    --md-secondary: #7fcfff;
+    --md-secondary-container: #004a77;
+    --md-on-secondary-container: #c2e7ff;
+    --md-tertiary: #6dd58c;
+    --md-tertiary-container: #0f5223;
+    --md-on-tertiary-container: #c4eed0;
+    --md-error: #f2b8b5;
+    --md-on-error: #601410;
+    --md-error-container: #8c1d18;
+    --md-on-error-container: #f9dedc;
+    --md-warning: #ffb95c;
+    --md-warning-container: #5c3d00;
+
+    --md-surface: #131314;
+    --md-surface-container-lowest: #0e0e0e;
+    --md-surface-container-low: #1b1b1b;
+    --md-surface-container: #1e1f20;
+    --md-surface-container-high: #282a2c;
+    --md-surface-container-highest: #333537;
+    --md-on-surface: #e3e3e3;
+    --md-on-surface-variant: #c4c7c5;
+    --md-outline: #8e918f;
+    --md-outline-variant: #444746;
+    --md-inverse-surface: #e3e3e3;
+    --md-inverse-on-surface: #303030;
+
+    --md-elev-1: 0 1px 2px rgba(0, 0, 0, .5), 0 1px 3px 1px rgba(0, 0, 0, .3);
+    --md-elev-2: 0 1px 2px rgba(0, 0, 0, .5), 0 2px 6px 2px rgba(0, 0, 0, .3);
+    --md-elev-3: 0 4px 8px 3px rgba(0, 0, 0, .3), 0 1px 3px rgba(0, 0, 0, .5);
+  }
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html {
+  color-scheme: light dark;
+  -webkit-text-size-adjust: 100%;
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  background: var(--md-surface);
+  color: var(--md-on-surface);
+  /* Roboto when the system has it — Android and most Linux desktops do —
+   * falling back to the platform UI face. No webfont: the container has no
+   * egress and the CSP forbids one. */
+  font-family: Roboto, "Google Sans", system-ui, -apple-system, "Segoe UI",
+               "Helvetica Neue", Arial, sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  letter-spacing: .0125em;
+  -webkit-font-smoothing: antialiased;
+}
+
+code, pre, .mono {
+  font-family: "Roboto Mono", ui-monospace, SFMono-Regular, Menlo, Consolas,
+               "Liberation Mono", monospace;
+}
+
+/* --- MD3 type scale ------------------------------------------------------ */
+
+h1 {                       /* headline-medium on phones, large above */
+  font-size: 1.75rem; line-height: 2.25rem; font-weight: 400;
+  letter-spacing: 0; margin: 0 0 .25rem;
+}
+h2 {                       /* title-large */
+  font-size: 1.25rem; line-height: 1.75rem; font-weight: 500;
+  letter-spacing: 0; margin: 2rem 0 .75rem;
+}
+h3 {                       /* title-medium */
+  font-size: 1rem; line-height: 1.5rem; font-weight: 500;
+  letter-spacing: .009em; margin: 1.5rem 0 .5rem;
+}
+p { margin: 0 0 1rem; }
+
+.lead {                    /* body-large */
+  font-size: 1rem; line-height: 1.5rem; letter-spacing: .031em;
+  color: var(--md-on-surface-variant); margin: 0 0 1.25rem;
+}
+.muted { color: var(--md-on-surface-variant); }
+.small { font-size: .8125rem; line-height: 1.25rem; letter-spacing: .025em; }
+
+a {
+  color: var(--md-primary);
+  text-decoration: none;
+  border-radius: var(--md-corner-xs);
+}
+a:hover { text-decoration: underline; text-underline-offset: 3px; }
+a:focus-visible {
+  outline: 3px solid var(--md-primary);
+  outline-offset: 2px;
+}
+
+/* --- layout: mobile first ------------------------------------------------ */
+
+.wrap { max-width: 100%; margin: 0 auto; padding: 1.5rem 1rem 4rem; }
+.row  { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+.grid { display: grid; gap: .75rem; grid-template-columns: 1fr; }
+
+@media (min-width: 600px) {
+  .wrap { padding: 2rem 1.5rem 5rem; }
+  h1 { font-size: 2rem; line-height: 2.5rem; }
+  .grid-2 { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+}
+@media (min-width: 905px) {
+  .wrap { max-width: 900px; padding: 3rem 2rem 6rem; }
+  h1 { font-size: 2.25rem; line-height: 2.75rem; }
+}
+@media (min-width: 1240px) {
+  .wrap { max-width: 1000px; }
+}
+
+/* --- chip (was: badge) --------------------------------------------------- */
+
+.badge {
+  display: inline-flex; align-items: center; gap: .25rem;
+  height: 2rem; padding: 0 .75rem;
+  border: 1px solid var(--md-outline-variant);
+  border-radius: var(--md-corner-s);
+  background: transparent; color: var(--md-on-surface-variant);
+  font-size: .8125rem; font-weight: 500; letter-spacing: .006em;
+  white-space: nowrap;
+}
+
+/* --- card ---------------------------------------------------------------- */
+
+.card {
+  background: var(--md-surface-container-low);
+  color: var(--md-on-surface);
+  border: 1px solid transparent;
+  border-radius: var(--md-corner-m);
+  padding: 1rem;
+}
+a.card {
+  display: block; text-decoration: none; position: relative;
+  transition: background var(--md-dur-short) var(--md-ease-standard),
+              box-shadow var(--md-dur-short) var(--md-ease-standard);
+}
+a.card:hover {
+  background: var(--md-surface-container);
+  box-shadow: var(--md-elev-1);
+  text-decoration: none;
+}
+a.card:active { background: var(--md-surface-container-high); }
+a.card:focus-visible { outline: 3px solid var(--md-primary); outline-offset: 2px; }
+.card b {
+  display: block; font-size: 1rem; font-weight: 500; line-height: 1.5rem;
+  margin-bottom: .25rem; color: var(--md-on-surface);
+}
+
+/* --- buttons ------------------------------------------------------------- */
+
+.btn {                     /* filled button */
+  display: inline-flex; align-items: center; justify-content: center; gap: .5rem;
+  min-height: 2.5rem; padding: 0 1.5rem;
+  border: none; border-radius: var(--md-corner-full);
+  background: var(--md-primary); color: var(--md-on-primary);
+  font: inherit; font-size: .875rem; font-weight: 500; letter-spacing: .006em;
+  cursor: pointer; text-decoration: none; position: relative; overflow: hidden;
+  transition: box-shadow var(--md-dur-short) var(--md-ease-standard);
+  -webkit-tap-highlight-color: transparent;
+}
+/* MD3 state layer: a tinted overlay rather than a colour change, so every
+ * variant reacts identically without redefining its palette. */
+.btn::after {
+  content: ""; position: absolute; inset: 0;
+  background: currentColor; opacity: 0;
+  transition: opacity var(--md-dur-short) var(--md-ease-standard);
+}
+.btn:hover { box-shadow: var(--md-elev-1); }
+.btn:hover::after { opacity: var(--md-state-hover); }
+.btn:active::after { opacity: var(--md-state-press); }
+.btn:focus-visible { outline: 3px solid var(--md-primary); outline-offset: 2px; }
+.btn:disabled {
+  background: color-mix(in srgb, var(--md-on-surface) 12%, transparent);
+  color: color-mix(in srgb, var(--md-on-surface) 38%, transparent);
+  box-shadow: none; cursor: not-allowed;
+}
+
+.btn-outline {             /* outlined button */
+  background: transparent; color: var(--md-primary);
+  border: 1px solid var(--md-outline);
+}
+.btn-outline:hover { box-shadow: none; }
+
+.btn-sm { min-height: 2rem; padding: 0 .875rem; font-size: .8125rem; }
+
+/* --- text fields (MD3 outlined) ------------------------------------------ */
+
+label {
+  display: block; font-size: .75rem; font-weight: 500; letter-spacing: .05em;
+  color: var(--md-on-surface-variant); margin-bottom: .375rem;
+}
+
+input[type=text], input[type=password], input[type=number], input[type=search],
+select, textarea {
+  width: 100%; min-height: 3rem; padding: .75rem;
+  border: 1px solid var(--md-outline);
+  border-radius: var(--md-corner-xs);
+  background: var(--md-surface);
+  color: var(--md-on-surface);
+  font: inherit; font-size: 1rem;
+  transition: border-color var(--md-dur-short) var(--md-ease-standard);
+}
+textarea { min-height: auto; resize: vertical; line-height: 1.5; }
+input:hover, select:hover, textarea:hover { border-color: var(--md-on-surface); }
+input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: none;
+  border-color: var(--md-primary);
+  box-shadow: inset 0 0 0 1px var(--md-primary);
+}
+input::placeholder, textarea::placeholder { color: var(--md-on-surface-variant); opacity: .8; }
+
+select {
+  appearance: none;
+  /* The chevron is an inline SVG data URI: no external asset, and it inherits
+   * nothing from the theme, so it is drawn twice for the two schemes. */
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23444746'%3E%3Cpath d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right .5rem center;
+  background-size: 1.5rem;
+  padding-right: 2.5rem;
+}
+@media (prefers-color-scheme: dark) {
+  select {
+    background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23c4c7c5'%3E%3Cpath d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
+  }
+}
+
+input[type=color] {
+  width: 100%; min-height: 3rem; padding: .25rem; cursor: pointer;
+  border: 1px solid var(--md-outline); border-radius: var(--md-corner-xs);
+  background: var(--md-surface);
+}
+input[type=range] { width: 100%; accent-color: var(--md-primary); min-height: 2.5rem; }
+input[type=checkbox], input[type=radio] { accent-color: var(--md-primary); width: 1.15rem; height: 1.15rem; }
+
+/* --- code ---------------------------------------------------------------- */
+
+pre {
+  background: var(--md-surface-container);
+  border: none;
+  border-radius: var(--md-corner-m);
+  padding: 1rem;
+  overflow-x: auto;
+  font-size: .8125rem;
+  line-height: 1.5;
+  margin: 0 0 1rem;
+  -webkit-overflow-scrolling: touch;
+}
+code:not(pre code) {
+  background: var(--md-surface-container);
+  border-radius: var(--md-corner-xs);
+  padding: .125em .375em;
+  font-size: .875em;
+}
+
+/* --- table: scrolls rather than squashing on a phone --------------------- */
+
+table {
+  width: 100%; border-collapse: collapse;
+  font-size: .875rem; margin: 0 0 1rem;
+  display: block; overflow-x: auto; white-space: nowrap;
+}
+@media (min-width: 700px) {
+  table { display: table; white-space: normal; }
+}
+th, td {
+  text-align: left; padding: .875rem .75rem;
+  border-bottom: 1px solid var(--md-outline-variant);
+  vertical-align: top;
+}
+th {
+  color: var(--md-on-surface-variant);
+  font-weight: 500; font-size: .75rem;
+  text-transform: uppercase; letter-spacing: .08em;
+}
+tbody tr:last-child td { border-bottom: 0; }
+tbody tr { transition: background var(--md-dur-short) var(--md-ease-standard); }
+tbody tr:hover { background: var(--md-surface-container-low); }
+
+/* --- callout (MD3 tonal container) --------------------------------------- */
+
+.alert {
+  border: none;
+  border-radius: var(--md-corner-m);
+  background: var(--md-warning-container);
+  color: var(--md-on-surface);
+  padding: 1rem 1.25rem;
+  margin: 1.5rem 0;
+  font-size: .875rem;
+  line-height: 1.5;
+}
+.alert-title { font-weight: 500; margin-bottom: .25rem; }
+
+/* --- divider / footer ---------------------------------------------------- */
+
+.sep {
+  height: 1px; background: var(--md-outline-variant);
+  border: 0; margin: 2.5rem 0 1.5rem;
+}
+footer {
+  color: var(--md-on-surface-variant);
+  font-size: .875rem; line-height: 1.5;
+}
+
+/* --- respect a reduced-motion preference --------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    transition-duration: 1ms !important;
+    animation-duration: 1ms !important;
+  }
+}

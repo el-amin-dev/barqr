@@ -68,6 +68,13 @@ func Rasterize(c render.Canvas, o OutputOpts) (*image.NRGBA, error) {
 	bounds := image.Rect(0, 0, w, total)
 	ink := image.NewNRGBA(bounds)
 
+	// The frame goes down first. It occupies only the modules the renderer
+	// reserved outside the quiet zone, so it never collides with a module, but
+	// painting it below the code is what keeps that true if a shape ever grows.
+	if fr, ok := resolveFrame(c); ok {
+		paintFrame(ink, fr, scale)
+	}
+
 	for y := range c.Rows {
 		for x := range c.Cols {
 			// Eye modules are skipped here and painted below as whole
@@ -95,6 +102,15 @@ func Rasterize(c render.Canvas, o OutputOpts) (*image.NRGBA, error) {
 		ball.RasterBall(ink,
 			moduleRect(bx, by, eyeBallModules, eyeBallModules, scale),
 			c.ColorAt(bx, by))
+	}
+
+	// The logo lands after the modules so that a caller who did not ask for
+	// excavation still gets it on top of them, and before any text so that no
+	// glyph disappears underneath it.
+	paintLogo(ink, c, scale)
+
+	if spec, ok := resolveCaption(c); ok {
+		paintCaption(ink, spec, scale)
 	}
 
 	if hasText {
@@ -285,24 +301,10 @@ func textWidth(n, pixel int) int {
 	return n*(fontCols+1)*pixel - pixel
 }
 
-// drawHRI paints the laid-out text onto the ink layer.
+// drawHRI paints the laid-out text onto the ink layer. The glyph drawing
+// itself lives in paint.go, shared with the caption band.
 func drawHRI(dst *image.NRGBA, b hriBand, c color.NRGBA) {
-	for i, g := range b.glyphs {
-		originX := b.x + i*(fontCols+1)*b.pixel
-		for row := range fontRows {
-			bits := g[row]
-			for col := range fontCols {
-				// Bit fontCols-1 is the leftmost column, which is what makes
-				// the binary literals in the font table look like the glyph.
-				if bits&(1<<(fontCols-1-col)) == 0 {
-					continue
-				}
-				x := originX + col*b.pixel
-				y := b.y + row*b.pixel
-				fillRect(dst, image.Rect(x, y, x+b.pixel, y+b.pixel), c)
-			}
-		}
-	}
+	drawGlyphs(dst, b.glyphs, b.x, b.y, b.pixel, c)
 }
 
 // Font cell size. Five by seven is the smallest cell in which every digit
