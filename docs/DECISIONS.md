@@ -5,6 +5,109 @@
 
 <!-- append ADRs below, newest first -->
 
+## ADR-012 — Decode guards run on the image header, before any pixel (2026-08-17)
+
+- status: accepted
+- context: `POST /v1/decode` accepts an arbitrary image from the network. A
+  hundred-byte PNG can declare 50000x50000 pixels; decoding it allocates ten
+  gigabytes before any cap on the *decoded* size could fire.
+- decision: `internal/decoder` reads dimensions with `image.DecodeConfig` and
+  rejects anything over the pixel cap **before** decoding a single pixel, and
+  rejects an oversized input before touching it at all. Zero or negative caps
+  normalise to the defaults rather than meaning "unlimited" — unlike
+  `writer.OutputOpts`, there is no way to switch the decode guards off. Only
+  six decoders are registered, and a `recover` wraps the third-party call as a
+  backstop against a library bug.
+- alternatives: cap the decoded image (too late); a timeout (the allocation
+  happens faster than any useful timeout); trust the library (its own history
+  says otherwise).
+- consequences: an unusual but legitimate large scan is rejected. That is the
+  right trade for the single most exposed surface in the service.
+
+## ADR-011 — The request decoder is built by reflection over one struct (2026-08-17)
+
+- status: accepted
+- context: every option must be reachable as a query parameter, a JSON field,
+  and a multipart field. Three hand-maintained mappings would drift, and the
+  drift would be silent: a field reachable in JSON but not in the query looks
+  like it works right up until someone tries the other transport.
+- decision: `Request` is the single source of truth. `internal/httpapi` walks
+  its JSON tags once at init and builds a dot-notation index that drives all
+  three transports and the OpenAPI parameter list. A new field is reachable
+  everywhere the moment it is declared.
+- alternatives: three explicit mappings (drift); code generation (a build step
+  for something reflection does once at startup).
+- consequences: reflection in the request path, confined to a startup-built
+  index and a type switch per field. Unknown fields are rejected with a
+  closest-match suggestion instead of being ignored, because a silently dropped
+  `output.formt` produces the wrong image and no clue why.
+
+## ADR-010 — One error shape, mapped from sentinels rather than message text (2026-08-17)
+
+- status: accepted
+- context: five packages produce errors that must reach a client as something
+  stable enough to switch on, without leaking internals.
+- decision: every package exports sentinel errors; `asFault` maps them onto a
+  flat `Fault` with a stable `code`, the offending `field` in dot notation, and
+  a `hint`. Anything unmapped becomes a generic 500 with the detail logged, not
+  returned. A test asserts no response ever contains a file path, a Go type
+  name, a pointer, or a stack frame.
+- alternatives: HTTP status codes alone (too coarse — six distinct 400s);
+  matching on message text (rewording an error would break clients).
+- consequences: a new error class needs a `case` in one function. Forgetting it
+  degrades to a 500, which is loud enough to be caught, and safe by default.
+
+## ADR-009 — PDF, EPS, and SVG are hand-written, with no dependency (2026-08-17)
+
+- status: accepted
+- context: print output needs millimetre-accurate PDF and EPS. The obvious
+  answer is a PDF library, which brings a large dependency and its own CVE
+  surface into an image that is otherwise 9 MB and has no shell.
+- decision: all three vector writers are hand-rolled against the stdlib. They
+  share page geometry, run merging, and colour flattening through
+  `internal/writer/vector.go` so the formats cannot describe the same canvas
+  differently. Horizontally adjacent modules merge into one rectangle, which
+  cuts a typical content stream by an order of magnitude, and the stream is
+  zlib-compressed.
+- alternatives: gofpdf (a dependency, and more than we need); rasterise and
+  embed a PNG (loses the vector output that is the whole point of print).
+- consequences: we own the xref-offset arithmetic, so the tests parse the
+  writer's own output. Verified externally with `mutool`, Ghostscript, and by
+  decoding the rasterised result back with gozxing.
+
+## ADR-008 — Payload builders must round-trip (2026-08-17)
+
+- status: accepted
+- context: barqr both writes and reads codes. A `Build` with no matching
+  `Parse` means `/v1/decode?parse=true` cannot return structured fields, and a
+  `Parse` that disagrees with `Build` is worse than none.
+- decision: every builder implements `Build`, `Parse`, and `Fields`, and a
+  single table test asserts `Parse(Build(p)) == p` across the whole registry.
+  A fuzz target drives every `Parse` over arbitrary input.
+- alternatives: build-only (halves the product); per-builder tests only (a new
+  builder added later would not be covered by anything).
+- consequences: the fuzz target immediately found a real bug — a builder that
+  defaulted a field on `Build` but omitted it on `Parse`, so the round trip was
+  not idempotent. That class of bug is invisible to example-based tests.
+
+## ADR-007 — Scannability is a report, never a render failure (2026-08-17)
+
+- status: accepted
+- context: the expensive failure is not an invalid code, it is a *valid* code
+  no scanner can read: brand colours that die under a shop camera, a quiet zone
+  trimmed to fit a layout, a logo that eats the error-correction budget.
+- decision: `render.Scannability` grades a canvas and returns findings with a
+  severity, a message in the terms a designer thinks in, and a fix. It never
+  fails. Whether a finding becomes a rejection is `BARQR_STRICT_SCANNABILITY`'s
+  decision, one layer up, and `POST /v1/validate` exposes the report without
+  rendering so a whole catalogue can be checked cheaply.
+- alternatives: refuse to render a risky design (breaks legitimate uses and
+  makes barqr an opinion rather than a tool); say nothing (the failure surfaces
+  on printed material, which is the most expensive place to find it).
+- consequences: thresholds are judgement calls and are documented as such in
+  the code. Being wrong is a warning a caller can ignore, not a blocked render.
+
+
 ## ADR-006 — Containerised toolchain as the default fallback (2026-08-17)
 
 - status: accepted

@@ -49,6 +49,29 @@ type Style struct {
 	// data modules.
 	EyeFG *color.NRGBA
 
+	// Gradient, when non-nil, replaces FG for data modules. Finder patterns
+	// keep FG or EyeFG: a ramp that runs light across an eye costs the
+	// scanner the landmark it locates the symbol with.
+	Gradient *Gradient
+
+	// Logo, when non-nil, reserves an area in the centre of the symbol and,
+	// if Logo.Excavate is set, clears the modules underneath it.
+	Logo *Logo
+
+	// Frame, when non-nil, reserves a border around the code. The renderer
+	// grows the canvas for it; the writer draws it.
+	Frame *Frame
+	// Caption is the text for the caption band beneath the code. Frame.Caption
+	// takes precedence when both are set.
+	Caption string
+
+	// ECC records the error-correction level the symbol was encoded at, so
+	// that style-level checks can judge how much data a logo may safely
+	// destroy. It is informational only: the renderer never changes the
+	// encoding, and an empty value means "unknown", which the scannability
+	// checks treat conservatively.
+	ECC string
+
 	// QuietZone is the margin in modules. Negative means "use whatever the
 	// symbology specifies".
 	QuietZone int
@@ -93,6 +116,13 @@ type Canvas struct {
 	// HRI is the human-readable text to draw beneath a linear code, or empty.
 	HRI string
 
+	// pad is the frame thickness reserved on every side, and band the height
+	// of the caption strip above the frame's bottom edge. Both are outside the
+	// quiet zone and are included in Cols and Rows. They are unexported
+	// because a writer should ask FrameRect, CaptionRect or SymbolRect rather
+	// than reconstruct the layout arithmetic itself.
+	pad, band int
+
 	// grid is row-major over Cols x Rows, quiet zone included.
 	grid []bool
 	// eye marks modules belonging to a finder pattern, so writers can paint
@@ -132,10 +162,21 @@ func (c *Canvas) Role(x, y int) EyeRole {
 }
 
 // ColorAt returns the colour a dark module at (x, y) should be painted with,
-// honouring a distinct eye colour when one is set.
+// honouring a distinct eye colour when one is set and a gradient fill over the
+// data modules.
+//
+// The gradient is sampled in symbol coordinates so that the ramp spans the
+// code and not the quiet zone or the frame, which would compress it into the
+// middle of the canvas and change with every margin the caller picks.
 func (c *Canvas) ColorAt(x, y int) color.NRGBA {
 	if c.Style.EyeFG != nil && c.Role(x, y) != RoleData {
 		return *c.Style.EyeFG
+	}
+	if c.Style.Gradient != nil && c.Role(x, y) == RoleData {
+		sym := c.SymbolRect()
+		if !sym.Empty() {
+			return c.Style.Gradient.ColorAt(x-sym.Min.X, y-sym.Min.Y, sym.Dx(), sym.Dy())
+		}
 	}
 	return c.Style.FG
 }

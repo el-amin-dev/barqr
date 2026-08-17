@@ -295,6 +295,27 @@ func (c *Config) AuthorizeKey(presented string) bool {
 	return match == 1
 }
 
+// KeyID returns a stable, non-secret identifier for a presented key: its
+// one-based position in BARQR_API_KEYS, rendered as "k<N>". Logs and rate
+// limit buckets use this so that neither ever contains the key itself.
+//
+// It returns an empty string for a key that is not configured. Like
+// AuthorizeKey it checks every entry without an early return, so the identity
+// of the matching key does not leak through timing either.
+func (c *Config) KeyID(presented string) string {
+	sum := sha256.Sum256([]byte(presented))
+	idx := -1
+	for i := range c.apiKeyHashes {
+		if subtle.ConstantTimeCompare(sum[:], c.apiKeyHashes[i][:]) == 1 {
+			idx = i
+		}
+	}
+	if idx < 0 {
+		return ""
+	}
+	return "k" + strconv.Itoa(idx+1)
+}
+
 // Redacted renders the effective configuration as sorted KEY=value lines with
 // secrets replaced by a placeholder. It is safe to print or log, and backs
 // both `barqr check-config` and `barqr serve --print-config`.

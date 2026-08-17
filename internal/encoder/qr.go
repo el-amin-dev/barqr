@@ -69,7 +69,7 @@ func (qrEncoder) Encode(data string, o EncodeOpts) (Matrix, error) {
 	if err != nil {
 		// The library reports a capacity overflow for payloads that pass the
 		// byte check but exceed the denser encodings' limits.
-		return Matrix{}, fmt.Errorf("%w: qr: %s", ErrDataTooLong, err)
+		return Matrix{}, fmt.Errorf("%w: qr: %w", ErrDataTooLong, err)
 	}
 
 	b := code.Bounds()

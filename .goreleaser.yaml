@@ -1,0 +1,107 @@
+version: 2
+
+project_name: barqr
+
+before:
+  hooks:
+    - go mod download
+
+builds:
+  - id: barqr
+    main: ./cmd/barqr
+    binary: barqr
+    # The default build is CGO-free so a single binary runs on any glibc or
+    # musl host, and so the container can be distroless.
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    ignore:
+      - goos: windows
+        goarch: arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X github.com/el-amin-dev/barqr/internal/version.Version={{ .Version }}
+      - -X github.com/el-amin-dev/barqr/internal/version.Commit={{ .ShortCommit }}
+      - -X github.com/el-amin-dev/barqr/internal/version.Date={{ .CommitDate }}
+    # CommitDate rather than the build clock, so two builds of one tag produce
+    # identical binaries.
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: barqr
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    files:
+      - README.md
+      - LICENSE
+      - docs/API.md
+      - docs/DEPLOY.md
+      - docs/SECURITY.md
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+sboms:
+  - artifacts: archive
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  use: github
+  sort: asc
+  groups:
+    - title: Features
+      regexp: '^feat(\(.+\))?!?:'
+      order: 0
+    - title: Fixes
+      regexp: '^fix(\(.+\))?!?:'
+      order: 1
+    - title: Security
+      regexp: '^(sec|security)(\(.+\))?!?:'
+      order: 2
+    - title: Performance
+      regexp: '^perf(\(.+\))?!?:'
+      order: 3
+    - title: Other
+      order: 99
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+      - '^ci:'
+      - Merge branch
+
+release:
+  draft: false
+  prerelease: auto
+  footer: |
+    ## Container image
+
+    ```bash
+    docker pull ghcr.io/el-amin-dev/barqr:{{ .Tag }}
+    ```
+
+    Multi-arch (`linux/amd64`, `linux/arm64`), distroless, signed with cosign
+    and published with an SBOM and build provenance.
+
+    **Verify the signature:**
+
+    ```bash
+    cosign verify ghcr.io/el-amin-dev/barqr:{{ .Tag }} \
+      --certificate-identity-regexp '^https://github.com/el-amin-dev/barqr/' \
+      --certificate-oidc-issuer https://token.actions.githubusercontent.com
+    ```
+
+    > **Do not expose barqr directly to the internet.** It binds `127.0.0.1` and
+    > refuses to start on a wider bind without API keys, but it is designed for
+    > an internal network. See [SECURITY.md](https://github.com/el-amin-dev/barqr/blob/main/docs/SECURITY.md).

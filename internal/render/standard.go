@@ -41,6 +41,9 @@ func (standard) Render(m encoder.Matrix, s Style) (Canvas, error) {
 	if _, err := EyeShape(s.EyeBall); err != nil {
 		return Canvas{}, err
 	}
+	if err := validateStyleExtras(s); err != nil {
+		return Canvas{}, err
+	}
 
 	quiet := s.QuietZone
 	if quiet < 0 {
@@ -61,14 +64,24 @@ func (standard) Render(m encoder.Matrix, s Style) (Canvas, error) {
 		}
 	}
 
+	// A frame and a caption grow the canvas outwards, never inwards. The quiet
+	// zone stays exactly as wide as it was resolved to be: reusing it for
+	// decoration is the classic way a framed code stops scanning, because the
+	// decoder needs that clear margin to find the symbol's edge.
+	pad, band := frameLayout(s)
+	offset := quiet + pad
+
+	cols := m.Cols + 2*offset
 	c := Canvas{
-		Cols:      m.Cols + 2*quiet,
-		Rows:      rows + 2*quiet,
+		Cols:      cols,
+		Rows:      rows + 2*offset + band,
 		QuietZone: quiet,
 		Style:     s,
 		Symbology: m.Symbology,
 		Kind:      m.Kind,
-		grid:      make([]bool, (m.Cols+2*quiet)*(rows+2*quiet)),
+		pad:       pad,
+		band:      band,
+		grid:      make([]bool, cols*(rows+2*offset+band)),
 	}
 	if s.HRI {
 		c.HRI = m.HRI
@@ -81,16 +94,37 @@ func (standard) Render(m encoder.Matrix, s Style) (Canvas, error) {
 		}
 		for x := range m.Cols {
 			if m.At(x, src) {
-				c.grid[(y+quiet)*c.Cols+(x+quiet)] = true
+				c.grid[(y+offset)*c.Cols+(x+offset)] = true
 			}
 		}
 	}
 
 	if m.Kind == encoder.Kind2D && hasFinderPatterns(m) {
-		c.eye = markFinderPatterns(m, quiet, c.Cols, c.Rows)
+		c.eye = markFinderPatterns(m, offset, c.Cols, c.Rows)
+	}
+
+	// Excavation runs last so that it can consult the finder-pattern roles and
+	// refuse to clear one.
+	if s.Logo != nil && s.Logo.Excavate {
+		c.excavate()
 	}
 
 	return c, nil
+}
+
+// validateStyleExtras checks the decorative parts of a style that have their
+// own invariants. They are validated here rather than at parse time so that a
+// style built in Go — by a test, or by a caller using the package directly —
+// cannot smuggle an out-of-range logo or an unknown frame kind past the
+// renderer.
+func validateStyleExtras(s Style) error {
+	if err := s.Gradient.validate(); err != nil {
+		return err
+	}
+	if err := s.Logo.validate(); err != nil {
+		return err
+	}
+	return s.Frame.validate()
 }
 
 // hasFinderPatterns reports whether the matrix looks like a QR symbol, which
@@ -106,21 +140,21 @@ func hasFinderPatterns(m encoder.Matrix) bool {
 
 // markFinderPatterns classifies the modules of the three finder patterns so
 // that writers can paint them as whole shapes. Coordinates are translated into
-// canvas space, quiet zone included.
-func markFinderPatterns(m encoder.Matrix, quiet, cols, rows int) []EyeRole {
+// canvas space by offset, which is the quiet zone plus any frame thickness.
+func markFinderPatterns(m encoder.Matrix, offset, cols, rows int) []EyeRole {
 	roles := make([]EyeRole, cols*rows)
 
 	corners := [][2]int{
-		{0, 0},                  // top-left
-		{m.Cols - eyeSize, 0},   // top-right
-		{0, m.Rows - eyeSize},   // bottom-left
+		{0, 0},                // top-left
+		{m.Cols - eyeSize, 0}, // top-right
+		{0, m.Rows - eyeSize}, // bottom-left
 	}
 
 	for _, corner := range corners {
 		ox, oy := corner[0], corner[1]
 		for dy := range eyeSize {
 			for dx := range eyeSize {
-				x, y := ox+dx+quiet, oy+dy+quiet
+				x, y := ox+dx+offset, oy+dy+offset
 				if x < 0 || y < 0 || x >= cols || y >= rows {
 					continue
 				}

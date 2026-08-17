@@ -112,6 +112,19 @@ test: $(PREP) ## Run tests with the race detector and coverage
 cover: test ## Report per-function coverage
 	$(GO) tool cover -func=coverage.out
 
+.PHONY: bench
+bench: $(PREP) ## Run the hot-path benchmarks
+	$(GO) test -run '^$$' -bench . -benchmem ./...
+
+.PHONY: fuzz
+fuzz: $(PREP) ## Run each fuzz target briefly (FUZZTIME=30s to go longer)
+	@for pkg in ./internal/builder ./internal/httpapi; do \
+		for target in $$($(GO) test -list 'Fuzz.*' $$pkg 2>/dev/null | grep '^Fuzz' || true); do \
+			echo "==> $$pkg $$target"; \
+			$(GO) test -run '^$$' -fuzz "^$$target$$" -fuzztime $${FUZZTIME:-20s} $$pkg || exit 1; \
+		done; \
+	done
+
 # --- package ----------------------------------------------------------------
 
 .PHONY: docker-build
@@ -126,26 +139,40 @@ docker-build: ## Build the runtime image
 
 SMOKE_NAME ?= barqr-smoke
 SMOKE_PORT ?= 38080
+SMOKE_KEY  ?= smoke-key
 
 # smoke deliberately does not depend on docker-build: CI builds the image with
 # buildx and then runs this target against it, so the two must stay separable.
+# It asserts the security posture as well as the endpoints — the guards that
+# matter most are the ones nothing else would notice regressing.
 .PHONY: smoke
 smoke: ## Start the built image and exercise it over HTTP
 	@$(DOCKER) rm -f $(SMOKE_NAME) >/dev/null 2>&1 || true
 	@set -e; \
 	fail() { echo "  FAIL: $$1"; $(DOCKER) logs $(SMOKE_NAME) 2>&1 | tail -20; exit 1; }; \
 	trap '$(DOCKER) rm -f $(SMOKE_NAME) >/dev/null 2>&1 || true' EXIT; \
-	echo "==> smoke: refusing an insecure configuration"; \
+	echo "==> smoke: refuses a wildcard bind with no API keys"; \
 	if $(DOCKER) run --rm -e BARQR_BIND=0.0.0.0 $(IMAGE):$(IMAGE_TAG) >/dev/null 2>&1; then \
-		echo "  FAIL: container started on a wildcard bind with no API keys"; exit 1; \
+		echo "  FAIL: container started unauthenticated on a wildcard bind"; exit 1; \
 	fi; \
+	echo "==> smoke: refuses an invalid configuration"; \
+	if $(DOCKER) run --rm -e BARQR_RATE_LIMIT=nonsense $(IMAGE):$(IMAGE_TAG) >/dev/null 2>&1; then \
+		echo "  FAIL: container started with an unparseable BARQR_RATE_LIMIT"; exit 1; \
+	fi; \
+	echo "==> smoke: check-config validates and redacts"; \
+	$(DOCKER) run --rm -e BARQR_API_KEYS=topsecret --entrypoint /barqr $(IMAGE):$(IMAGE_TAG) \
+		check-config | grep -q 'BARQR_API_KEYS=<redacted' || fail "check-config redaction"; \
+	$(DOCKER) run --rm -e BARQR_API_KEYS=topsecret --entrypoint /barqr $(IMAGE):$(IMAGE_TAG) \
+		check-config | grep -q topsecret && fail "check-config leaked an API key"; \
 	echo "==> smoke: starting container"; \
 	$(DOCKER) run -d --name $(SMOKE_NAME) \
+		--read-only --cap-drop ALL --security-opt no-new-privileges \
 		-p 127.0.0.1:$(SMOKE_PORT):3000 \
 		-e BARQR_BIND=0.0.0.0 \
-		-e BARQR_API_KEYS=smoke-key \
+		-e BARQR_API_KEYS=$(SMOKE_KEY) \
 		$(IMAGE):$(IMAGE_TAG) >/dev/null; \
 	base=http://127.0.0.1:$(SMOKE_PORT)/v1; \
+	auth="-H X-API-Key:$(SMOKE_KEY)"; \
 	for _ in $$(seq 1 100); do \
 		curl -fsS $$base/readyz >/dev/null 2>&1 && break || sleep 0.2; \
 	done; \
@@ -155,6 +182,38 @@ smoke: ## Start the built image and exercise it over HTTP
 	curl -fsS $$base/readyz | grep -q '"status":"ready"' || fail "readyz"; \
 	echo "==> smoke: GET /v1/version"; \
 	curl -fsS $$base/version | grep -q '"name":"barqr"' || fail "version"; \
+	echo "==> smoke: unauthenticated render is rejected"; \
+	test "$$(curl -s -o /dev/null -w '%{http_code}' "$$base/qr?data=hi")" = 401 \
+		|| fail "an unauthenticated render was not rejected"; \
+	echo "==> smoke: GET /v1/symbologies"; \
+	curl -fsS $$auth $$base/symbologies | grep -q '"name":"qr"' || fail "symbologies"; \
+	echo "==> smoke: GET /v1/openapi.json"; \
+	curl -fsS $$auth $$base/openapi.json | grep -q '"openapi"' || fail "openapi"; \
+	echo "==> smoke: GET /v1/qr renders a PNG"; \
+	curl -fsS $$auth "$$base/qr?data=https://example.com" -o /tmp/barqr-smoke.png || fail "qr png"; \
+	head -c 8 /tmp/barqr-smoke.png | od -An -tx1 | tr -d ' \n' \
+		| grep -qi '^89504e470d0a1a0a$$' || fail "output is not a PNG"; \
+	echo "==> smoke: GET /v1/qr renders SVG"; \
+	curl -fsS $$auth "$$base/qr?data=hi&output.format=svg" | grep -q '<svg' || fail "qr svg"; \
+	echo "==> smoke: GET /v1/qr renders ANSI for a terminal"; \
+	curl -fsS $$auth "$$base/qr?data=hi&output.format=ansi" | grep -q "$$(printf '\033')" \
+		|| fail "qr ansi"; \
+	echo "==> smoke: ETag returns 304 on revalidation"; \
+	etag=$$(curl -fsS $$auth -D - -o /dev/null "$$base/qr?data=etag" | tr -d '\r' \
+		| awk '/^[Ee][Tt]ag:/{print $$2}'); \
+	test -n "$$etag" || fail "no ETag header"; \
+	test "$$(curl -s $$auth -H "If-None-Match: $$etag" -o /dev/null \
+		-w '%{http_code}' "$$base/qr?data=etag")" = 304 || fail "ETag revalidation"; \
+	echo "==> smoke: GET /v1/build/wifi"; \
+	curl -fsS $$auth "$$base/build/wifi?payload.ssid=Lobby&payload.password=x&payload.auth=WPA" \
+		| grep -q 'WIFI:' || fail "build wifi"; \
+	echo "==> smoke: POST /v1/validate"; \
+	curl -fsS $$auth -H 'Content-Type: application/json' \
+		-d '{"data":"hello","style":{"fg":"#eeeeee"}}' $$base/validate \
+		| grep -q 'LOW_CONTRAST' || fail "validate did not flag a low-contrast design"; \
+	echo "==> smoke: an unknown field is rejected with a suggestion"; \
+	curl -s $$auth "$$base/qr?data=hi&output.formt=png" | grep -q 'did you mean' \
+		|| fail "no closest-match suggestion on an unknown field"; \
 	echo "==> smoke: GET /v1/nope is 404"; \
 	test "$$(curl -s -o /dev/null -w '%{http_code}' $$base/nope)" = 404 || fail "404"; \
 	echo "==> smoke: image runs as an unprivileged user"; \

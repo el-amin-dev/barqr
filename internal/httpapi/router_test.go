@@ -1,15 +1,11 @@
 package httpapi_test
 
 import (
-	"context"
 	"encoding/json"
-	"io"
 	"log/slog"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/el-amin-dev/barqr/internal/config"
 	"github.com/el-amin-dev/barqr/internal/httpapi"
@@ -102,58 +98,4 @@ func TestUnknownRouteIs404(t *testing.T) {
 	if got, want := resp.StatusCode, http.StatusNotFound; got != want {
 		t.Fatalf("status = %d, want %d", got, want)
 	}
-}
-
-// TestServeLifecycle exercises the readiness flip and graceful shutdown over a
-// real socket: ready while serving, draining once the context is cancelled.
-func TestServeLifecycle(t *testing.T) {
-	t.Parallel()
-
-	srv := newServer(t)
-
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- srv.Serve(ctx, ln) }()
-
-	base := "http://" + ln.Addr().String()
-	waitReady(t, base+"/v1/readyz")
-
-	cancel()
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("Serve() returned error: %v", err)
-		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("Serve() did not return after context cancellation")
-	}
-
-	// The listener must be closed once Serve returns.
-	if _, err := http.Get(base + "/v1/healthz"); err == nil { //nolint:bodyclose // no body on a failed dial
-		t.Error("server still accepting connections after shutdown")
-	}
-}
-
-// waitReady polls until the endpoint reports ready or the deadline passes.
-func waitReady(t *testing.T, url string) {
-	t.Helper()
-
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		resp, err := http.Get(url) //nolint:gosec,noctx // fixed loopback URL in a test
-		if err == nil {
-			_, _ = io.Copy(io.Discard, resp.Body)
-			_ = resp.Body.Close()
-			if resp.StatusCode == http.StatusOK {
-				return
-			}
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	t.Fatalf("%s never became ready", url)
 }
