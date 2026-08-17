@@ -113,6 +113,14 @@ func Rasterize(c render.Canvas, o OutputOpts) (*image.NRGBA, error) {
 // no second image at all. The two common pixels, fully inked and fully clear,
 // are branches rather than arithmetic because a code is overwhelmingly made of
 // them: only anti-aliased shape edges reach the blend.
+//
+// Every narrowing conversion below is a weighted average of two bytes divided
+// by the sum of its own weights, so each is bounded by 255 by construction:
+// (255*a + 255*(255-a) + 127)/255 = 255 is the maximum. The alpha term is
+// (outA+127)/255 where outA <= 255*255. Static analysis cannot see that, hence
+// the blanket annotation.
+//
+// #nosec G115 -- every conversion is a weighted average bounded by 255; see above
 func compositeOverUniform(dst *image.NRGBA, bg color.NRGBA) {
 	if bg.A == 0 {
 		return // nothing to composite against; the ink layer is the result
@@ -138,9 +146,9 @@ func compositeOverUniform(dst *image.NRGBA, bg color.NRGBA) {
 			// the alpha divisions cancel out. Every term is a weighted average
 			// of two bytes, so the quotient cannot exceed 255:
 			// (255*a + 255*(255-a) + 127)/255 = 255.
-			p[0] = uint8((uint32(p[0])*a + uint32(bg.R)*inv + 127) / 255) //nolint:gosec // bounded by 255, see above
-			p[1] = uint8((uint32(p[1])*a + uint32(bg.G)*inv + 127) / 255) //nolint:gosec // bounded by 255
-			p[2] = uint8((uint32(p[2])*a + uint32(bg.B)*inv + 127) / 255) //nolint:gosec // bounded by 255
+			p[0] = uint8((uint32(p[0])*a + uint32(bg.R)*inv + 127) / 255)
+			p[1] = uint8((uint32(p[1])*a + uint32(bg.G)*inv + 127) / 255)
+			p[2] = uint8((uint32(p[2])*a + uint32(bg.B)*inv + 127) / 255)
 			p[3] = 0xFF
 			continue
 		}
@@ -151,10 +159,10 @@ func compositeOverUniform(dst *image.NRGBA, bg color.NRGBA) {
 		// byte, and outA itself is at most 255*255.
 		ba := uint32(bg.A)
 		outA := a*255 + ba*inv
-		p[0] = uint8((uint32(p[0])*a*255 + uint32(bg.R)*ba*inv) / outA) //nolint:gosec // weighted average, bounded by 255
-		p[1] = uint8((uint32(p[1])*a*255 + uint32(bg.G)*ba*inv) / outA) //nolint:gosec // bounded by 255
-		p[2] = uint8((uint32(p[2])*a*255 + uint32(bg.B)*ba*inv) / outA) //nolint:gosec // bounded by 255
-		p[3] = uint8((outA + 127) / 255)                                //nolint:gosec // outA <= 255*255
+		p[0] = uint8((uint32(p[0])*a*255 + uint32(bg.R)*ba*inv) / outA)
+		p[1] = uint8((uint32(p[1])*a*255 + uint32(bg.G)*ba*inv) / outA)
+		p[2] = uint8((uint32(p[2])*a*255 + uint32(bg.B)*ba*inv) / outA)
+		p[3] = uint8((outA + 127) / 255)
 	}
 }
 

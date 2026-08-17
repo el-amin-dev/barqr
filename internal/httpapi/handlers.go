@@ -207,7 +207,8 @@ func (s *Server) serveResult(w http.ResponseWriter, r *http.Request, res *result
 	// The body is a rendered image, served with a Content-Type this process
 	// chose, nosniff, and the sandboxing CSP above — not caller-controlled
 	// markup on an HTML content type.
-	if _, err := w.Write(res.Body); err != nil { //nolint:gosec // G705: see setRenderSecurityHeaders
+	// #nosec G705 -- an image on a server-chosen Content-Type, with nosniff and the sandboxing CSP set above; not caller-controlled markup
+	if _, err := w.Write(res.Body); err != nil {
 		s.log.Debug("writing rendered output failed", "error", err.Error())
 	}
 }

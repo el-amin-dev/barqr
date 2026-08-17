@@ -73,7 +73,8 @@ func (s *Server) handleBatch(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusOK)
 	// A zip archive on application/zip, with nosniff and the sandboxing CSP.
-	if _, err := w.Write(out.Body); err != nil { //nolint:gosec // G705: see setRenderSecurityHeaders
+	// #nosec G705 -- a zip archive on application/zip, with nosniff and the sandboxing CSP set above
+	if _, err := w.Write(out.Body); err != nil {
 		s.log.Debug("writing batch output failed", "error", err.Error())
 	}
 }

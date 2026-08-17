@@ -267,7 +267,7 @@ func unknownJSONField(err error) (string, bool) {
 func applyMultipart(req *Request, r *http.Request) error {
 	// The body is already capped by withBodyLimit's MaxBytesReader, so the
 	// parse cannot buffer more than that however many parts are declared.
-	//nolint:gosec // G120: bounded upstream by BARQR_MAX_BODY
+	// #nosec G120 -- bounded upstream: withBodyLimit wraps the body in a MaxBytesReader at BARQR_MAX_BODY
 	if err := r.ParseMultipartForm(maxMultipartMemory); err != nil {
 		return newFault(http.StatusBadRequest, CodeBadRequest, "malformed multipart body")
 	}

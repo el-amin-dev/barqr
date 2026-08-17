@@ -104,7 +104,7 @@ func (s *Server) decodeInput(r *http.Request) (decodeRequest, []byte, error) {
 	switch mediaType {
 	case "multipart/form-data":
 		// The body is already capped by withBodyLimit's MaxBytesReader.
-		//nolint:gosec // G120: bounded upstream by BARQR_MAX_BODY
+		// #nosec G120 -- bounded upstream: withBodyLimit wraps the body in a MaxBytesReader at BARQR_MAX_BODY
 		if err := r.ParseMultipartForm(maxMultipartMemory); err != nil {
 			return req, nil, newFault(http.StatusBadRequest, CodeBadRequest,
 				"malformed multipart body")
