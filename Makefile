@@ -141,6 +141,11 @@ SMOKE_NAME ?= barqr-smoke
 SMOKE_PORT ?= 38080
 SMOKE_KEY  ?= smoke-key
 
+# The project brief set 20 MB as the target. The binary carries the Swagger UI
+# and ReDoc bundles, so the number is checked here rather than trusted: a README
+# that claims a size is a claim like any other.
+MAX_IMAGE_BYTES ?= 20000000
+
 # smoke deliberately does not depend on docker-build: CI builds the image with
 # buildx and then runs this target against it, so the two must stay separable.
 # It asserts the security posture as well as the endpoints — the guards that
@@ -275,6 +280,11 @@ smoke: ## Start the built image and exercise it over HTTP
 		| grep -q '"symbol"' || fail "json omits the symbol rectangle"; \
 	echo "==> smoke: GET /v1/nope is 404"; \
 	test "$$(curl -s -o /dev/null -w '%{http_code}' $$base/nope)" = 404 || fail "404"; \
+	echo "==> smoke: the image stays under its stated ceiling"; \
+	bytes=$$($(DOCKER) image inspect $(IMAGE):$(IMAGE_TAG) --format '{{.Size}}'); \
+	test "$$bytes" -lt $(MAX_IMAGE_BYTES) \
+		|| fail "image is $$bytes bytes, over the $(MAX_IMAGE_BYTES) ceiling — \
+update the README and docs, or work out what grew"; \
 	echo "==> smoke: image runs as an unprivileged user"; \
 	test "$$($(DOCKER) inspect --format '{{.Config.User}}' $(IMAGE):$(IMAGE_TAG))" = "65532:65532" \
 		|| fail "image USER is not 65532:65532"; \

@@ -524,19 +524,106 @@ screen-sized image. A failed row leaves a blank label and sets `X-Sheet-Failed`.
 
 ## Presets
 
-### `GET /v1/preset` · `GET|POST /v1/preset/{name}`
+### `GET /v1/preset`
 
-A preset is a saved bundle of options. The request overrides it, so a preset is a
-starting point rather than a straitjacket.
+Lists every preset this build carries, with its options.
+
+```json
+{"presets": [
+  {"name": "obsidian", "kind": "theme",
+   "description": "Dotted modules on deep indigo, with a mauve accent",
+   "options": {"style.module": "dot", "style.eye": "circle", "style.eye_ball": "circle",
+               "style.fg": "#CBA6F7", "style.bg": "#1E1E2E", "style.eye_fg": "#F5C2E7"}}
+]}
+```
+
+| Field | Meaning |
+|---|---|
+| `name` | The slug used in the path. |
+| `kind` | `layout` or `theme` — see below. Absent means `layout`. |
+| `description` | One line of prose, for a picker. |
+| `options` | The option keys the preset sets, in the same dot notation a request uses. |
+
+### `GET|POST /v1/preset/{name}`
+
+Renders with the preset as the baseline. **The request overrides it**, on every field
+it sets, so a preset is a starting point rather than a straitjacket. The response
+carries `X-Barqr-Preset` naming the one that was applied.
 
 ```bash
 curl 'localhost:3000/v1/preset/print?data=https://barqr.dev' -o label.pdf
 curl 'localhost:3000/v1/preset/print?data=hi&output.format=svg'   # print, but SVG
 ```
 
-Built in: `default` · `print` · `terminal` · `web` · `ticket` · `label` · `dark` ·
-`sticker`. `BARQR_PRESETS_PATH` adds JSON files; one with a built-in's name overrides
-it. A malformed file is a boot warning, not a failure.
+There is no `preset` request field: a preset is named in the path and nowhere else,
+and one request applies one preset.
+
+### The two kinds
+
+A **layout** answers *where is this code going* — a press, a terminal, a label — and
+sets format, resolution and error correction. A **theme** answers *what should it look
+like*, and sets nothing but the six appearance keys: `style.module`, `style.eye`,
+`style.eye_ball`, `style.fg`, `style.bg`, `style.eye_fg`.
+
+Keeping them apart is what makes a theme usable. Because a theme touches no output
+field, naming one leaves format, scale and error correction exactly where you or the
+endpoint put them — `?data=x&output.format=svg` works on every theme in the list
+below. `TestThemesTouchOnlyAppearance` holds that line: a theme that set
+`output.format` would silently override the caller's choice of destination.
+
+So a caller has three levels of choice rather than one: take `default`, name a
+ready-made theme, or write `style.*` out in full.
+
+#### Layouts
+
+| Name | For |
+|---|---|
+| `default` | PNG at eight pixels per module, specification error correction. |
+| `print` | 300 dpi, millimetre sizing, `H` correction, six-module quiet zone. |
+| `terminal` | ANSI half-blocks sized for an 80-column terminal. |
+| `web` | Small SVG for inline use, `L` correction to keep the path count down. |
+| `ticket` | 203 dpi thermal stock, `H` correction. Supply `style.caption` yourself. |
+| `label` | Linear stock: tall bars, HRI text on, the 1D ten-module quiet zone. |
+| `dark` | Light modules on a dark background. Reversed polarity — expect a warning. |
+| `sticker` | Rounded modules, dot eyeballs, `H` correction to pay for the decoration. |
+
+#### Themes
+
+Thirty, in five groups.
+
+| Group | Themes |
+|---|---|
+| Reference | `md3-light` `md3-dark` — Material Design 3 · `gnome-light` `gnome-dark` — GNOME Adwaita |
+| Dark | `obsidian` mauve on indigo · `slate` sky on navy · `midnight-forest` leaf finders on deep green · `ember-dark` shield finders on near-black brown · `arctic-night` circles on midnight blue · `rose-dark` rose on deep wine · `dusk` classy modules, amber on charcoal · `indigo-night` shield finders on deep indigo · `teal-void` leaf finders on deep teal · `violet-night` purple on deep violet |
+| Light | `chalk` terracotta on warm paper · `daybreak` cyan on pale sky · `forest` leaf finders on pale green · `ember` shield finders on warm white · `arctic` circles on pale blue · `rose` crimson on blush · `sand` classy modules, ochre on warm grey · `indigo` shield finders on pale indigo · `teal-mist` leaf finders on pale teal · `violet-dew` purple on pale violet · `copper` classy modules, copper on cream |
+| Monochrome | `ink` pure black on pure white, the most scannable code barqr draws · `paper` vertically merged on off-white · `graphite` horizontally merged on near-black · `ghost` dotted white on black |
+| Terminal | `neon-void` electric cyan on black with a magenta accent |
+
+**The accent lives in `eye_fg` only**, in every one of them. A scanner locates the
+three finder patterns before it reads a single data module, so that is where colour
+can be spent for free. The data modules stay near-neutral against their background,
+which is what holds the contrast ratio — and therefore the scan. A theme that tinted
+every module would look bolder on screen and fail on a phone camera in a shop.
+
+**Every theme is machine-verified.** `TestEveryThemeScans` renders each one through the
+real encoder and the real renderer and puts the result through the same scannability
+report `/v1/validate` serves. It must pass, with module *and* finder contrast at 4.5:1
+or better — not the 3:1 the report treats as fatal. Several accents were deepened one
+shade from their design-system source for exactly that reason: the hue carries the
+identity, and a shade darker costs nothing visually while moving the code out of the
+range where a phone camera in poor light starts to guess.
+
+Fifteen themes are dark-on-light and grade `excellent` with no findings. The fifteen
+light-on-dark ones grade `good` and carry an [`INVERTED`](#validating) warning — a
+warning rather than an error on purpose, because plenty of scanners cope and a caller
+who names a dark theme has chosen it. Run `POST /v1/validate` with the combination you
+intend before committing it to print.
+
+### Adding your own
+
+`BARQR_PRESETS_PATH` names a directory of JSON files; the file stem is the preset name,
+and one matching a built-in's name overrides it. A file may declare `"kind": "theme"`,
+and omitting `kind` means `layout`. A malformed file is a boot warning, not a failure.
 
 ---
 

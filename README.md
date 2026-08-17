@@ -10,7 +10,7 @@
 [![CodeQL](https://github.com/el-amin-dev/barqr/actions/workflows/codeql.yml/badge.svg)](https://github.com/el-amin-dev/barqr/actions/workflows/codeql.yml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/el-amin-dev/barqr)](https://goreportcard.com/report/github.com/el-amin-dev/barqr)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-[![Image](https://img.shields.io/badge/image-9.3%20MB-brightgreen)](Dockerfile)
+[![Image](https://img.shields.io/badge/image-18.5%20MB-brightgreen)](Dockerfile)
 
 **15 symbologies · 18 payload builders · 12 output formats · 4 ms per code**
 
@@ -100,7 +100,7 @@ a rate limit and a privacy policy. barqr replaces all three with one endpoint.
 | **Drop-in microservice** | One container, one port, env-only config. Fits a compose file, a Nomad job, or a k8s Deployment without adapters. |
 | **curl-first** | Every option reachable as a query param *or* a JSON body field *or* a multipart form field — one decoder, three transports. |
 | **Deny by default** | Binds loopback, demands an API key, and refuses to boot if that combination would expose it. |
-| **Small** | 9.3 MB distroless image: no shell, no package manager, unprivileged user, read-only rootfs. |
+| **Small** | 18.5 MB distroless image: no shell, no package manager, unprivileged user, read-only rootfs. |
 
 Non-goals, on purpose: no accounts, no billing, no image editing, no "AI"
 anything. It renders codes.
@@ -118,7 +118,7 @@ nothing stateful. `BARQR_DOCS=false` removes it entirely.
 | **Payloads** | `url` · `wifi` · `vcard` · `mecard` · `email` · `tel` · `sms` · `whatsapp` · `geo` · `location` · `event` · `otp` · `crypto` · `epc` · `bookmark` · `app` · `text` · `raw` |
 | **Output** | `png` · `svg` · `pdf` · `eps` · `jpeg` · `webp` · `ascii` · `unicode` · `ansi` · `json` · `datauri` · `txt` |
 | **Style** | 7 module shapes, 5 eye shapes, gradients, logo embedding with excavation, frames, captions |
-| **Also** | image decoding, batch (CSV/JSON → ZIP), label sheets, named presets, scannability scoring, a browser docs UI |
+| **Also** | image decoding, batch (CSV/JSON → ZIP), label sheets, 8 layout presets and 30 themes, scannability scoring, a browser docs UI |
 
 Twenty more symbologies are registered as *unavailable with a reason* rather than
 omitted, so `/v1/symbologies` never lies about what a given build can do.
@@ -146,7 +146,7 @@ day you did not plan for, discovered after the feature shipped.
 | A 60 KB JavaScript encoder shipped to every visitor | An `<img src>` URL — and a code that renders in email clients and PDFs, where JS does not run |
 | A frontend library that cannot produce print output | `pdf`/`eps` at 300 DPI with real millimetre sizing |
 | A hosted QR API with a rate limit and a privacy policy | Your container, your network, your data — Wi-Fi passwords and TOTP secrets never leave the box |
-| "We'll add barcodes later" | 15 symbologies behind the same request shape |
+| "We'll add barcodes later" | 15 symbologies behind one request shape, and 20 more listed as unavailable rather than pretended away |
 
 **When you should *not* use barqr:** one code, one service, one language, no styling,
 no print output, no decode. Call the library. Adding a network hop to a solved problem
@@ -218,7 +218,7 @@ Full reference: [`docs/DEPLOY.md`](docs/DEPLOY.md).
 | `POST /v1/decode` | Image in, data out. `parse=true` returns structured fields. |
 | `POST /v1/batch` | Many codes at once: `items` or CSV in, ZIP or JSON out. |
 | `POST /v1/sheet` | A grid of labels laid out on a page, as print-ready PDF. |
-| `GET /v1/preset` · `GET\|POST /v1/preset/{name}` | Named option bundles; the request overrides them. |
+| `GET /v1/preset` · `GET\|POST /v1/preset/{name}` | Named option bundles — 8 layouts and 30 themes; the request overrides them. |
 | `GET /v1/symbologies` | Machine-readable capability matrix for *this* build. |
 | `GET /v1/openapi.json` | OpenAPI 3.1, generated from the live registries. |
 | `GET /v1/healthz` · `/readyz` · `/version` | Liveness, readiness, build identity. Unauthenticated. |
@@ -284,6 +284,44 @@ curl -G --data-urlencode 'payload.location=45 Rue Didouche Mourad, Alger' \
 
 It also does directions — `from Setif to Algiers`, or `Setif -> Algiers` — and
 honours `origin`, `mode`, `zoom`, `language` and `region`.
+
+### Make it look like your product
+
+`GET /v1/preset/{name}` names a bundle of options, and there are two kinds of
+bundle because callers ask two different questions. A **layout** — `default`
+`print` `terminal` `web` `ticket` `label` `dark` `sticker` — answers *where is
+this code going*, and sets format, resolution and error correction. A **theme**
+answers *what should it look like*, and sets nothing but the six appearance keys.
+So a caller has three levels of choice and not one: take `default`, name a
+ready-made theme, or write `style.*` out in full.
+
+```bash
+curl -H 'X-API-Key: dev-key' \
+  'localhost:3000/v1/preset/obsidian?data=https://barqr.dev&output.format=svg' -o code.svg
+```
+
+Thirty themes ship built in. Because a theme touches no output field, that is the
+`obsidian` palette at whatever format, scale and error correction you ask for —
+the request wins on every field it sets.
+
+One rule runs through all thirty, and it is why they are safe as defaults: **the
+accent lives in `eye_fg` only.** A scanner locates the three finder patterns
+before it reads a single data module, so that is where colour can be spent for
+free. The data modules stay near-neutral against their background, which is what
+holds the contrast. A theme that tinted every module would look bolder on screen
+and fail on a phone camera in a shop.
+
+They are machine-checked rather than eyeballed. `TestEveryThemeScans` renders
+every theme through the real encoder and renderer and puts it through the real
+scannability report: it must pass, with module *and* finder contrast at 4.5:1 or
+better — not the 3:1 the report treats as fatal. Several accents were deepened
+one shade from their design-system source for exactly that reason. Fifteen themes
+are dark-on-light and grade `excellent`; the fifteen light-on-dark ones grade
+`good` and carry an `INVERTED` warning, which is a warning and not an error
+because plenty of scanners cope and the caller chose it.
+
+The full grouped list is in [`docs/API.md`](docs/API.md#presets), and
+`GET /v1/preset` returns it from the running build.
 
 ### Will it actually scan?
 
@@ -450,8 +488,8 @@ and a spot-instance eviction costs nothing.
 
 ## Project status
 
-Built to a ten-milestone plan, committed at every boundary. M0 through M8 are done
-and tested; M9 is the release hardening.
+Built to a ten-milestone plan, committed at every boundary. M0 through M9 are
+done and tested. M10 is explicitly optional and not started.
 
 | | Milestone | Contents |
 |---|---|---|
@@ -464,8 +502,8 @@ and tested; M9 is the release hardening.
 | ✅ | **M6** print | pdf and eps writers, mm/inch/dpi sizing |
 | ✅ | **M7** decode | `/v1/decode`, header-first bomb guards, round-trip tested |
 | ✅ | **M8** bulk | `/v1/batch`, `/v1/sheet`, presets |
-| ▶ | **M9** hardening | fuzzing ✅, gosec ✅, security review ✅, docs UI ✅ — release workflow written, image not yet published |
-| | **M10** optional | zint `full` build tag, dynamic-code module |
+| ✅ | **M9** hardening | fuzzing, gosec, adversarial security review, SSRF-guarded egress, browser docs UI, SBOM + cosign + Trivy, continuous delivery to GHCR |
+| | **M10** optional | zint `full` build tag, dynamic-code module — not started, see [ADR-013](docs/DECISIONS.md) |
 
 ### Benchmarks
 
@@ -485,13 +523,18 @@ true colour. Repeat renders of the same URL are `304`s.
 
 | Package | | Package | |
 |---|---|---|---|
-| `encoder` | 94.5% | `render` | 95.2% |
-| `writer` | 94.2% | `decoder` | 93.8% |
-| `batch` | 94.2% | `sheet` | 96.2% |
-| `preset` | 92.8% | `config` | 86.0% |
-| `httpapi` | 79.2% | `builder` | 76.9% |
+| `sheet` | 96.2% | `mapsurl` | 95.0% |
+| `fetch` | 96.3% | `builder` | 94.5% |
+| `encoder` | 94.5% | `batch` | 94.2% |
+| `decoder` | 93.8% | `render` | 93.2% |
+| `preset` | 92.8% | `writer` | 92.1% |
+| `cmd/barqr` | 97.6% | `config` | 87.2% |
+| `httpapi` | 82.8% | `version` | 100% |
 
-Plus fuzz targets on the request decoder and every builder's `Parse`.
+Plus fuzz targets on the request decoder and every builder's `Parse`, and
+`internal/doccheck`, which parses this README and the reference docs and
+asserts them against the live registries — so the tables above cannot drift
+from what the binary does.
 
 ## Development
 
