@@ -72,18 +72,18 @@ select {
   position: sticky; top: 0; z-index: 20;
   display: flex; align-items: center; gap: .75rem; flex-wrap: wrap;
   padding: .65rem 1.25rem;
-  background: hsl(var(--background));
-  border-bottom: 1px solid hsl(var(--border));
+  background: var(--md-surface);
+  border-bottom: 1px solid var(--md-outline-variant);
 }
 .topbar .brand {
   font-size: 1.05rem; font-weight: 700; letter-spacing: -.025em;
-  text-decoration: none; color: hsl(var(--foreground));
+  text-decoration: none; color: var(--md-on-surface);
 }
 .topbar .links { margin-left: auto; display: flex; gap: .4rem; flex-wrap: wrap; }
 
 #status { max-width: 620px; margin: 3rem auto; padding: 0 1.5rem; }
 #status pre { white-space: pre-wrap; }
-.alert-error { border-left-color: hsl(var(--destructive)); }
+.alert-error { border-left-color: var(--md-error); }
 </style>
 </head>
 <body>
@@ -206,8 +206,12 @@ select {
         arrow: { color: palette.muted }
       },
       rightPanel: {
-        backgroundColor: palette.panel,
-        textColor: "#f8fafc"
+        // ReDoc's stock right panel is near-black. That reads as a mistake
+        // beside a page pinned to light, so it takes a surface tone instead
+        // and the code blocks inside it keep the dark treatment, which is
+        // what a reader expects of code either way.
+        backgroundColor: palette.surface,
+        textColor: palette.text
       },
       schema: {
         nestedBackground: palette.nested,

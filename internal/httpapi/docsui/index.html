@@ -17,12 +17,12 @@
 .topbar {
   display: flex; align-items: center; gap: .75rem 1rem; flex-wrap: wrap;
   padding-bottom: 1rem; margin-bottom: 1.5rem;
-  border-bottom: 1px solid hsl(var(--border));
+  border-bottom: 1px solid var(--md-outline-variant);
 }
 .topbar h1 { font-size: 1.35rem; margin: 0; }
 .topbar nav { display: flex; gap: .9rem; flex-wrap: wrap; font-size: .8rem; }
-.topbar nav a { color: hsl(var(--muted-foreground)); }
-.topbar nav a:hover { color: hsl(var(--foreground)); }
+.topbar nav a { color: var(--md-on-surface-variant); }
+.topbar nav a:hover { color: var(--md-on-surface); }
 .spacer { flex: 1 1 auto; }
 .keybox { display: flex; align-items: center; gap: .45rem; }
 .keybox label { margin: 0; white-space: nowrap; }
@@ -39,8 +39,8 @@
 .field { margin-bottom: .8rem; }
 .field:last-child { margin-bottom: 0; }
 .fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .8rem; }
-.hint { font-size: .72rem; color: hsl(var(--muted-foreground)); margin-top: .25rem; }
-.req { color: hsl(var(--destructive)); }
+.hint { font-size: .72rem; color: var(--md-on-surface-variant); margin-top: .25rem; }
+.req { color: var(--md-error); }
 
 .colorpair { display: grid; grid-template-columns: 2.75rem minmax(0, 1fr); gap: .35rem; }
 .colorpair input[type=color] { width: 2.75rem; }
@@ -54,42 +54,42 @@
  * gradient because the CSP forbids loading an image of any kind. */
 .stage {
   display: flex; align-items: center; justify-content: center;
-  min-height: 200px; padding: 1rem; border-radius: var(--radius);
-  border: 1px solid hsl(var(--border)); overflow: auto;
-  background-color: hsl(var(--muted));
+  min-height: 200px; padding: 1rem; border-radius: var(--md-corner-m);
+  border: 1px solid var(--md-outline-variant); overflow: auto;
+  background-color: var(--md-surface-container);
   background-image:
-    linear-gradient(45deg, hsl(var(--border)) 25%, transparent 25%),
-    linear-gradient(-45deg, hsl(var(--border)) 25%, transparent 25%),
-    linear-gradient(45deg, transparent 75%, hsl(var(--border)) 75%),
-    linear-gradient(-45deg, transparent 75%, hsl(var(--border)) 75%);
+    linear-gradient(45deg, var(--md-outline-variant) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--md-outline-variant) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--md-outline-variant) 75%),
+    linear-gradient(-45deg, transparent 75%, var(--md-outline-variant) 75%);
   background-size: 16px 16px;
   background-position: 0 0, 0 8px, 8px -8px, -8px 0;
 }
 .stage img { max-width: 100%; height: auto; image-rendering: pixelated; }
 .stage pre {
   margin: 0; width: 100%; white-space: pre; font-size: .58rem; line-height: 1.05;
-  background: hsl(var(--background));
+  background: var(--md-surface);
 }
 .stage.json pre, .stage.text pre {
   font-size: .72rem; line-height: 1.45; max-height: 22rem;
   white-space: pre-wrap; word-break: break-all;
 }
 
-.alert-error { border-left-color: hsl(var(--destructive)); }
+.alert-error { border-left-color: var(--md-error); }
 .alert dl { margin: .5rem 0 0; display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: .2rem .75rem; }
-.alert dt { color: hsl(var(--muted-foreground)); font-size: .78rem; }
+.alert dt { color: var(--md-on-surface-variant); font-size: .78rem; }
 .alert dd { margin: 0; font-size: .82rem; }
 
 .gradebox { display: flex; align-items: baseline; gap: .6rem; }
 .score { font-size: 1.6rem; font-weight: 700; letter-spacing: -.02em; }
 .grade { font-weight: 600; text-transform: capitalize; }
-.g-excellent, .g-good { color: hsl(var(--success)); }
-.g-risky { color: hsl(var(--warning)); }
-.g-unscannable { color: hsl(var(--destructive)); }
+.g-excellent, .g-good { color: var(--md-tertiary); }
+.g-risky { color: var(--md-warning); }
+.g-unscannable { color: var(--md-error); }
 .sev { font-size: .68rem; text-transform: uppercase; letter-spacing: .05em; font-weight: 600; }
-.sev-info { color: hsl(var(--muted-foreground)); }
-.sev-warn { color: hsl(var(--warning)); }
-.sev-error { color: hsl(var(--destructive)); }
+.sev-info { color: var(--md-on-surface-variant); }
+.sev-warn { color: var(--md-warning); }
+.sev-error { color: var(--md-error); }
 
 .chips { display: flex; flex-wrap: wrap; gap: .3rem; }
 .chips code { font-size: .72rem; }
