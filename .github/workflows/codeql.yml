@@ -12,6 +12,13 @@ on:
 permissions:
   contents: read
 
+# A superseded analysis has no value: only the tip of a branch is worth a
+# security verdict. Without this, a burst of pushes leaves several analyses
+# racing, and the loser still writes to the security tab.
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   analyze:
     name: analyze (go)
