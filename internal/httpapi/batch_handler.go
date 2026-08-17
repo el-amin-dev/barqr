@@ -67,12 +67,13 @@ func (s *Server) handleBatch(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", out.MIME)
 	w.Header().Set("Content-Length", strconv.Itoa(len(out.Body)))
-	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Disposition", contentDisposition(out.Filename, true))
+	setRenderSecurityHeaders(w)
 	w.Header().Set("X-Batch-Items", strconv.Itoa(len(out.Results)))
 
 	w.WriteHeader(http.StatusOK)
-	if _, err := w.Write(out.Body); err != nil {
+	// A zip archive on application/zip, with nosniff and the sandboxing CSP.
+	if _, err := w.Write(out.Body); err != nil { //nolint:gosec // G705: see setRenderSecurityHeaders
 		s.log.Debug("writing batch output failed", "error", err.Error())
 	}
 }

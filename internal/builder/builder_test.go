@@ -353,6 +353,7 @@ func FuzzParse(f *testing.F) {
 		" ",                     // whitespace is content to raw and text
 		"MEBKM:;URL:0;;",        // a link that Build would have normalised
 		"WIFI:S:00;;",           // no T segment: Parse has to fill the default in
+		"WIFI:S: ;;",            // an ssid of nothing but spaces, which Build refuses
 		"mAilto:0@0.0?suBjeCt=", // an empty parameter is not the same as an absent one
 		"MECARD:N:, ;;",         // a name that Build would have trimmed away
 		"https://wA.me/000(",    // a number that Build would have stripped

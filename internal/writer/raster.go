@@ -135,22 +135,26 @@ func compositeOverUniform(dst *image.NRGBA, bg color.NRGBA) {
 
 		if opaqueBG {
 			// Source-over onto an opaque backdrop: the result is opaque, so
-			// the alpha divisions cancel out.
-			p[0] = uint8((uint32(p[0])*a + uint32(bg.R)*inv + 127) / 255)
-			p[1] = uint8((uint32(p[1])*a + uint32(bg.G)*inv + 127) / 255)
-			p[2] = uint8((uint32(p[2])*a + uint32(bg.B)*inv + 127) / 255)
+			// the alpha divisions cancel out. Every term is a weighted average
+			// of two bytes, so the quotient cannot exceed 255:
+			// (255*a + 255*(255-a) + 127)/255 = 255.
+			p[0] = uint8((uint32(p[0])*a + uint32(bg.R)*inv + 127) / 255) //nolint:gosec // bounded by 255, see above
+			p[1] = uint8((uint32(p[1])*a + uint32(bg.G)*inv + 127) / 255) //nolint:gosec // bounded by 255
+			p[2] = uint8((uint32(p[2])*a + uint32(bg.B)*inv + 127) / 255) //nolint:gosec // bounded by 255
 			p[3] = 0xFF
 			continue
 		}
 
-		// General non-premultiplied source-over. outA is never zero here:
-		// the fully clear case was handled above.
+		// General non-premultiplied source-over. outA is never zero here: the
+		// fully clear case was handled above. Each channel is again a weighted
+		// average whose weights sum to outA, so the quotient stays within a
+		// byte, and outA itself is at most 255*255.
 		ba := uint32(bg.A)
 		outA := a*255 + ba*inv
-		p[0] = uint8((uint32(p[0])*a*255 + uint32(bg.R)*ba*inv) / outA)
-		p[1] = uint8((uint32(p[1])*a*255 + uint32(bg.G)*ba*inv) / outA)
-		p[2] = uint8((uint32(p[2])*a*255 + uint32(bg.B)*ba*inv) / outA)
-		p[3] = uint8((outA + 127) / 255)
+		p[0] = uint8((uint32(p[0])*a*255 + uint32(bg.R)*ba*inv) / outA) //nolint:gosec // weighted average, bounded by 255
+		p[1] = uint8((uint32(p[1])*a*255 + uint32(bg.G)*ba*inv) / outA) //nolint:gosec // bounded by 255
+		p[2] = uint8((uint32(p[2])*a*255 + uint32(bg.B)*ba*inv) / outA) //nolint:gosec // bounded by 255
+		p[3] = uint8((outA + 127) / 255)                                //nolint:gosec // outA <= 255*255
 	}
 }
 

@@ -72,6 +72,9 @@ func (s *Server) routes() http.Handler {
 			r.Post("/decode", s.handleDecode)
 			r.Post("/batch", s.handleBatch)
 
+			r.Post("/sheet", s.handleSheet)
+			r.Get("/sheet/templates", s.handleSheetTemplates)
+
 			r.Get("/preset", s.handlePresetList)
 			r.Get("/preset/{name}", s.handlePreset)
 			r.Post("/preset/{name}", s.handlePreset)

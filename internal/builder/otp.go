@@ -103,11 +103,8 @@ func (otpBuilder) Fields() []Field {
 }
 
 func (b otpBuilder) Build(payload any) (string, error) {
-	m, err := toMap(payload)
+	m, err := payloadMap(payload, b.Fields())
 	if err != nil {
-		return "", err
-	}
-	if err := checkFields(m, b.Fields()); err != nil {
 		return "", err
 	}
 
@@ -213,8 +210,11 @@ func (otpBuilder) Parse(raw string) (any, bool) {
 	if !ok {
 		return nil, false
 	}
-	secret, err := otpSecret(params["secret"])
-	if err != nil {
+	// The secret must already be in the normal form Build emits — upper case,
+	// no display grouping, no padding — or the rebuilt URI would differ from
+	// the one that was parsed.
+	secret := params["secret"]
+	if !stableString(secret, otpSecret) {
 		return nil, false
 	}
 

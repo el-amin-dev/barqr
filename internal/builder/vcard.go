@@ -67,11 +67,8 @@ func (vcardBuilder) Fields() []Field {
 }
 
 func (b vcardBuilder) Build(payload any) (string, error) {
-	m, err := toMap(payload)
+	m, err := payloadMap(payload, b.Fields())
 	if err != nil {
-		return "", err
-	}
-	if err := checkFields(m, b.Fields()); err != nil {
 		return "", err
 	}
 
@@ -215,7 +212,7 @@ func (vcardBuilder) Parse(raw string) (any, bool) {
 	_, hasFirst := out["first_name"]
 	_, hasLast := out["last_name"]
 	_, hasOrg := out["org"]
-	if version != "3.0" || !(hasFirst || hasLast || hasOrg) {
+	if version != "3.0" || (!hasFirst && !hasLast && !hasOrg) {
 		return nil, false
 	}
 	if !trimmedValues(out) || !noRawCarriageReturn(out) {

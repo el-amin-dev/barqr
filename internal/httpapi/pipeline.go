@@ -203,7 +203,7 @@ func (s *Server) pipeline(ctx context.Context, req Request) (*result, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := ctx.Err(); err != nil {
+	if ctx.Err() != nil {
 		return nil, timeoutFault()
 	}
 
@@ -220,7 +220,7 @@ func (s *Server) pipeline(ctx context.Context, req Request) (*result, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := ctx.Err(); err != nil {
+	if ctx.Err() != nil {
 		return nil, timeoutFault()
 	}
 
@@ -237,7 +237,7 @@ func (s *Server) pipeline(ctx context.Context, req Request) (*result, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := ctx.Err(); err != nil {
+	if ctx.Err() != nil {
 		return nil, timeoutFault()
 	}
 

@@ -73,11 +73,8 @@ func (cryptoBuilder) Fields() []Field {
 }
 
 func (b cryptoBuilder) Build(payload any) (string, error) {
-	m, err := toMap(payload)
+	m, err := payloadMap(payload, b.Fields())
 	if err != nil {
-		return "", err
-	}
-	if err := checkFields(m, b.Fields()); err != nil {
 		return "", err
 	}
 

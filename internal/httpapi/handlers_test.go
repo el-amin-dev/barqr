@@ -885,10 +885,10 @@ func TestServeLifecycle(t *testing.T) {
 	base := "http://" + ln.Addr().String()
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
-		resp, err := http.Get(base + "/v1/readyz") //nolint:gosec,noctx // fixed loopback URL in a test
-		if err == nil {
-			_ = resp.Body.Close()
-			if resp.StatusCode == http.StatusOK {
+		probe, probeErr := http.Get(base + "/v1/readyz") //nolint:gosec,noctx // fixed loopback URL in a test
+		if probeErr == nil {
+			_ = probe.Body.Close()
+			if probe.StatusCode == http.StatusOK {
 				break
 			}
 		}

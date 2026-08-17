@@ -95,12 +95,12 @@ func TestDecodeTransportsAgree(t *testing.T) {
 		"data": "hi", "style.module": "dot",
 		"output.format": "png", "output.scale": "12", "encode.ecc": "Q",
 	} {
-		if err := mw.WriteField(k, v); err != nil {
-			t.Fatal(err)
+		if writeErr := mw.WriteField(k, v); writeErr != nil {
+			t.Fatal(writeErr)
 		}
 	}
-	if err := mw.Close(); err != nil {
-		t.Fatal(err)
+	if closeErr := mw.Close(); closeErr != nil {
+		t.Fatal(closeErr)
 	}
 	r := httptest.NewRequest(http.MethodPost, "/v1/qr", &body)
 	r.Header.Set("Content-Type", mw.FormDataContentType())
@@ -373,11 +373,11 @@ func TestDecodeMultipartFileBecomesDataURI(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A one-pixel PNG is enough: the decoder only needs the bytes.
-	if _, err := part.Write([]byte("\x89PNG\r\n\x1a\n-not-a-real-png")); err != nil {
-		t.Fatal(err)
+	if _, writeErr := part.Write([]byte("\x89PNG\r\n\x1a\n-not-a-real-png")); writeErr != nil {
+		t.Fatal(writeErr)
 	}
-	if err := mw.Close(); err != nil {
-		t.Fatal(err)
+	if closeErr := mw.Close(); closeErr != nil {
+		t.Fatal(closeErr)
 	}
 
 	r := httptest.NewRequest(http.MethodPost, "/v1/qr", &body)

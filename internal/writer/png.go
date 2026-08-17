@@ -99,7 +99,13 @@ func paletteOf(img *image.NRGBA) color.Palette {
 func toPaletted(img *image.NRGBA, pal color.Palette) *image.Paletted {
 	index := make(map[uint32]uint8, len(pal))
 	for i, c := range pal {
-		n := c.(color.NRGBA)
+		// paletteOf only ever appends NRGBA, so a different type here would
+		// mean the palette came from somewhere else; skipping it would then
+		// silently mis-colour pixels, so it is a programming error.
+		n, ok := c.(color.NRGBA)
+		if !ok {
+			panic("writer: palette entry is not NRGBA")
+		}
 		index[uint32(n.R)<<24|uint32(n.G)<<16|uint32(n.B)<<8|uint32(n.A)] = uint8(i)
 	}
 

@@ -32,9 +32,45 @@ func TestOTPBuild(t *testing.T) {
 			want: "otpauth://hotp/ada?secret=JBSWY3DPEHPK3PXP&counter=0",
 		},
 		{
-			name: "a secret is upper-cased and its display grouping removed",
+			name:    "a secret is upper-cased and its display grouping removed",
 			payload: map[string]any{"account": "ada", "secret": "jbsw y3dp-ehpk 3pxp"},
 			want:    "otpauth://totp/ada?secret=JBSWY3DPEHPK3PXP",
+		},
+		{
+			name: "the stronger HMAC algorithms are accepted",
+			payload: map[string]any{
+				"account": "ada", "secret": "JBSWY3DPEHPK3PXP", "algorithm": "sha512", "digits": 8,
+			},
+			want: "otpauth://totp/ada?secret=JBSWY3DPEHPK3PXP&algorithm=SHA512&digits=8",
+		},
+		{
+			name: "SHA256 is accepted",
+			payload: map[string]any{
+				"account": "ada", "secret": "JBSWY3DPEHPK3PXP", "algorithm": "SHA256",
+			},
+			want: "otpauth://totp/ada?secret=JBSWY3DPEHPK3PXP&algorithm=SHA256",
+		},
+		{
+			name: "a period outside the usable range is rejected",
+			payload: map[string]any{
+				"account": "ada", "secret": "JBSWY3DPEHPK3PXP", "period": 0,
+			},
+			wantErr: ErrInvalidPayload,
+		},
+		{
+			name: "a period on hotp is rejected",
+			payload: map[string]any{
+				"type": "hotp", "account": "ada", "secret": "JBSWY3DPEHPK3PXP",
+				"counter": 1, "period": 30,
+			},
+			wantErr: ErrInvalidPayload,
+		},
+		{
+			name: "a negative counter is rejected",
+			payload: map[string]any{
+				"type": "hotp", "account": "ada", "secret": "JBSWY3DPEHPK3PXP", "counter": -1,
+			},
+			wantErr: ErrInvalidPayload,
 		},
 		{
 			name:    "a secret outside the base32 alphabet is rejected",
@@ -134,11 +170,12 @@ func TestOTPParse(t *testing.T) {
 		map[string]any{"type": "totp", "account": "ada", "secret": "JBSWY3DPEHPK3PXP"})
 
 	assertNotParsed(t, b,
-		"otpauth://xotp/ada?secret=JBSWY3DPEHPK3PXP",   // an unknown algorithm family
-		"otpauth://totp/ada?secret=not-base-32",        // a secret Build would reject
-		"otpauth://totp/ada",                           // no secret
-		"otpauth://totp/?secret=JBSWY3DPEHPK3PXP",      // no account
-		"otpauth://hotp/ada?secret=JBSWY3DPEHPK3PXP",   // hotp with no counter
+		"otpauth://xotp/ada?secret=JBSWY3DPEHPK3PXP",           // an unknown algorithm family
+		"otpauth://totp/ada?secret=jbswy3dpehpk3pxp",           // a secret not in the normal form
+		"otpauth://totp/ada?secret=nope!",                      // outside the base32 alphabet
+		"otpauth://totp/ada",                                   // no secret
+		"otpauth://totp/?secret=JBSWY3DPEHPK3PXP",              // no account
+		"otpauth://hotp/ada?secret=JBSWY3DPEHPK3PXP",           // hotp with no counter
 		"otpauth://totp/ada?secret=JBSWY3DPEHPK3PXP&digits=06", // not the shortest form
 		"otpauth://totp/a:b?secret=JBSWY3DPEHPK3PXP&issuer=c",  // label and query disagree
 		"otpauth://totp/ada?secret=JBSWY3DPEHPK3PXP#frag",      // a fragment that would be lost

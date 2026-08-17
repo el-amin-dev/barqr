@@ -101,8 +101,10 @@ func (s *Server) decodeInput(r *http.Request) (decodeRequest, []byte, error) {
 
 	mediaType, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
 
-	switch {
-	case mediaType == "multipart/form-data":
+	switch mediaType {
+	case "multipart/form-data":
+		// The body is already capped by withBodyLimit's MaxBytesReader.
+		//nolint:gosec // G120: bounded upstream by BARQR_MAX_BODY
 		if err := r.ParseMultipartForm(maxMultipartMemory); err != nil {
 			return req, nil, newFault(http.StatusBadRequest, CodeBadRequest,
 				"malformed multipart body")
@@ -130,7 +132,7 @@ func (s *Server) decodeInput(r *http.Request) (decodeRequest, []byte, error) {
 		_ = header
 		return req, data, nil
 
-	case mediaType == "application/json":
+	case "application/json":
 		if err := decodeJSONBody(r.Body, &req); err != nil {
 			return req, nil, err
 		}

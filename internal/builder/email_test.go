@@ -69,10 +69,10 @@ func TestEmailParse(t *testing.T) {
 		map[string]any{"email": "ada@example.com", "subject": "Hi there"})
 
 	assertNotParsed(t, b,
-		"ada@example.com",                    // no scheme
-		"mailto:not-an-address",              // not an address
-		"mailto:a@example.com?cc=b@x.com",    // a parameter this builder drops
-		"mailto:a@example.com?subject",       // a pair with no value
+		"ada@example.com",                      // no scheme
+		"mailto:not-an-address",                // not an address
+		"mailto:a@example.com?cc=b@x.com",      // a parameter this builder drops
+		"mailto:a@example.com?subject",         // a pair with no value
 		"mailto:a@example.com?subject=&body=x", // an empty parameter
 	)
 }

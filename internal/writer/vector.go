@@ -10,11 +10,12 @@ package writer
 
 import (
 	"fmt"
-	"github.com/el-amin-dev/barqr/internal/render"
 	"image/color"
 	"math"
 	"strconv"
 	"strings"
+
+	"github.com/el-amin-dev/barqr/internal/render"
 )
 
 // vecPaper is the colour an unpainted page is assumed to be when a translucent

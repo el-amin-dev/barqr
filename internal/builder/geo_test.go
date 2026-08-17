@@ -70,11 +70,11 @@ func TestGeoParse(t *testing.T) {
 		map[string]any{"latitude": 51.5, "longitude": -0.12, "altitude": 11.0})
 
 	assertNotParsed(t, b,
-		"geo:51.5",                // one coordinate
-		"geo:51.5,-0.12,1,2",      // too many
-		"geo:51.5,-0.12;u=35",     // an RFC 5870 parameter this builder cannot rebuild
-		"geo:91,0",                // out of range
-		"geo:51.50,-0.12",         // not in the shortest form Build emits
+		"geo:51.5",            // one coordinate
+		"geo:51.5,-0.12,1,2",  // too many
+		"geo:51.5,-0.12;u=35", // an RFC 5870 parameter this builder cannot rebuild
+		"geo:91,0",            // out of range
+		"geo:51.50,-0.12",     // not in the shortest form Build emits
 		"geo:north,west",
 	)
 }

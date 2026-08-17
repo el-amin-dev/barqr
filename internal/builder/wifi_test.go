@@ -46,6 +46,26 @@ func TestWiFiBuild(t *testing.T) {
 			want:    "WIFI:T:WEP;S:Old;P:abcdefghijklm;;",
 		},
 		{
+			name:    "a ten digit hex WEP key is quoted, being all hex",
+			payload: map[string]any{"ssid": "Old", "password": "0123456789", "auth": "WEP"},
+			want:    `WIFI:T:WEP;S:Old;P:"0123456789";;`,
+		},
+		{
+			name:    "an enterprise credential may be shorter than a WPA passphrase",
+			payload: map[string]any{"ssid": "Corp", "password": "pw", "auth": "WPA2-EAP"},
+			want:    "WIFI:T:WPA2-EAP;S:Corp;P:pw;;",
+		},
+		{
+			name:    "an enterprise credential with no password is rejected",
+			payload: map[string]any{"ssid": "Corp", "auth": "WPA2-EAP"},
+			wantErr: ErrInvalidPayload,
+		},
+		{
+			name:    "a WEP key of the wrong length is rejected",
+			payload: map[string]any{"ssid": "Old", "password": "abcdefg", "auth": "WEP"},
+			wantErr: ErrInvalidPayload,
+		},
+		{
 			name:    "a short WPA passphrase is rejected",
 			payload: map[string]any{"ssid": "Home", "password": "short", "auth": "WPA"},
 			wantErr: ErrInvalidPayload,
@@ -147,10 +167,10 @@ func TestWiFiParse(t *testing.T) {
 			"auth": authWPA, "hidden": false})
 
 	assertNotParsed(t, b,
-		"WIFI:T:WPA;S:Home;P:hunter2hunter2;",        // no record terminator
-		"WIFI:T:WPA;S:Home;P:short;;",                // a passphrase Build would reject
+		"WIFI:T:WPA;S:Home;P:hunter2hunter2;",         // no record terminator
+		"WIFI:T:WPA;S:Home;P:short;;",                 // a passphrase Build would reject
 		"WIFI:T:WPA;S:Home;P:hunter2hunter2;E:PEAP;;", // an enterprise field not modelled
-		"WIFI:T:WPA;P:hunter2hunter2;;",              // no ssid
+		"WIFI:T:WPA;P:hunter2hunter2;;",               // no ssid
 		"WIFI:;;",
 	)
 }

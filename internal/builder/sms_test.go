@@ -59,9 +59,9 @@ func TestSMSParse(t *testing.T) {
 		map[string]any{"phone": "+442079460958", "message": "hi"})
 
 	assertNotParsed(t, b,
-		"sms:+442079460958?body=hi",  // the RFC form this builder deliberately avoids
-		"SMSTO:+442079460958:",       // an empty message it would never emit
-		"SMSTO:+44 20 7946 0958:hi",  // a number not in the normal form
+		"sms:+442079460958?body=hi", // the RFC form this builder deliberately avoids
+		"SMSTO:+442079460958:",      // an empty message it would never emit
+		"SMSTO:+44 20 7946 0958:hi", // a number not in the normal form
 		"SMSTO:",
 	)
 }

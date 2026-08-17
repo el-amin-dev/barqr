@@ -205,12 +205,32 @@ smoke: ## Start the built image and exercise it over HTTP
 	test "$$(curl -s $$auth -H "If-None-Match: $$etag" -o /dev/null \
 		-w '%{http_code}' "$$base/qr?data=etag")" = 304 || fail "ETag revalidation"; \
 	echo "==> smoke: GET /v1/build/wifi"; \
-	curl -fsS $$auth "$$base/build/wifi?payload.ssid=Lobby&payload.password=x&payload.auth=WPA" \
+	curl -fsS $$auth "$$base/build/wifi?payload.ssid=Lobby&payload.password=guest2026&payload.auth=WPA" \
 		| grep -q 'WIFI:' || fail "build wifi"; \
 	echo "==> smoke: POST /v1/validate"; \
 	curl -fsS $$auth -H 'Content-Type: application/json' \
 		-d '{"data":"hello","style":{"fg":"#eeeeee"}}' $$base/validate \
 		| grep -q 'LOW_CONTRAST' || fail "validate did not flag a low-contrast design"; \
+	echo "==> smoke: POST /v1/decode round-trips a rendered code"; \
+	curl -fsS $$auth "$$base/qr?data=https://barqr.dev" -o /tmp/barqr-smoke-rt.png; \
+	curl -fsS $$auth -H 'Content-Type: application/octet-stream' \
+		--data-binary @/tmp/barqr-smoke-rt.png "$$base/decode?parse=true" \
+		| grep -q 'https://barqr.dev' || fail "decode round trip"; \
+	echo "==> smoke: POST /v1/batch returns a zip"; \
+	curl -fsS $$auth -H 'Content-Type: application/json' \
+		-d '{"items":[{"id":"a","data":"one"},{"id":"b","data":"two"}],"output":"zip"}' \
+		$$base/batch -o /tmp/barqr-smoke.zip; \
+	head -c 2 /tmp/barqr-smoke.zip | grep -q 'PK' || fail "batch zip"; \
+	echo "==> smoke: POST /v1/sheet returns a PDF"; \
+	curl -fsS $$auth -H 'Content-Type: application/json' \
+		-d '{"template":"avery-l7160","items":[{"id":"x","data":"label"}]}' \
+		$$base/sheet | head -c 5 | grep -q '%PDF-' || fail "sheet pdf"; \
+	echo "==> smoke: GET /v1/preset/terminal"; \
+	curl -fsS $$auth "$$base/preset/terminal?data=hi" | grep -q "$$(printf '\033')" \
+		|| fail "preset terminal"; \
+	echo "==> smoke: rendered responses carry a sandboxing CSP"; \
+	curl -fsS $$auth -D - -o /dev/null "$$base/qr?data=hi&output.format=svg" \
+		| grep -qi 'content-security-policy' || fail "no CSP on a rendered response"; \
 	echo "==> smoke: an unknown field is rejected with a suggestion"; \
 	curl -s $$auth "$$base/qr?data=hi&output.formt=png" | grep -q 'did you mean' \
 		|| fail "no closest-match suggestion on an unknown field"; \

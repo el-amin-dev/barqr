@@ -36,11 +36,8 @@ func (rawBuilder) Fields() []Field {
 }
 
 func (b rawBuilder) Build(payload any) (string, error) {
-	m, err := toMap(payload)
+	m, err := payloadMap(payload, b.Fields())
 	if err != nil {
-		return "", err
-	}
-	if err := checkFields(m, b.Fields()); err != nil {
 		return "", err
 	}
 	// Not strReq: this builder validates nothing, and a payload of spaces is a

@@ -85,11 +85,8 @@ func (wifiBuilder) Fields() []Field {
 }
 
 func (b wifiBuilder) Build(payload any) (string, error) {
-	m, err := toMap(payload)
+	m, err := payloadMap(payload, b.Fields())
 	if err != nil {
-		return "", err
-	}
-	if err := checkFields(m, b.Fields()); err != nil {
 		return "", err
 	}
 
@@ -177,8 +174,10 @@ func (wifiBuilder) Parse(raw string) (any, bool) {
 		}
 	}
 
+	// An ssid of nothing but spaces is what Build refuses, not merely an empty
+	// one, so Parse has to draw the line in the same place.
 	ssid, hasSSID := out["ssid"].(string)
-	if !hasSSID || ssid == "" || len(ssid) > ssidMaxBytes {
+	if !hasSSID || strings.TrimSpace(ssid) == "" || len(ssid) > ssidMaxBytes {
 		return nil, false
 	}
 
@@ -238,8 +237,8 @@ func wifiPasswordOK(auth, password string) error {
 		// A WEP key is 5 or 13 ASCII characters, or the same key written as 10
 		// or 26 hex digits.
 		n := len(password)
-		hex := isHexString(password)
-		if !(n == 5 || n == 13 || (hex && (n == 10 || n == 26))) {
+		asHex := isHexString(password) && (n == 10 || n == 26)
+		if n != 5 && n != 13 && !asHex {
 			return fmt.Errorf(
 				"%w: a WEP key is 5 or 13 characters, or 10 or 26 hex digits; this one is %d",
 				ErrInvalidPayload, n)

@@ -154,16 +154,16 @@ func decodeOver(r *http.Request, req *Request) error {
 			"unparseable Content-Type header")
 	}
 
-	switch {
-	case mediaType == "application/json":
+	switch mediaType {
+	case "application/json":
 		if err := applyJSON(req, r.Body); err != nil {
 			return err
 		}
-	case mediaType == "multipart/form-data":
+	case "multipart/form-data":
 		if err := applyMultipart(req, r); err != nil {
 			return err
 		}
-	case mediaType == "application/x-www-form-urlencoded":
+	case "application/x-www-form-urlencoded":
 		if err := r.ParseForm(); err != nil {
 			return newFault(http.StatusBadRequest, CodeBadRequest,
 				"malformed form body")
@@ -171,7 +171,7 @@ func decodeOver(r *http.Request, req *Request) error {
 		if err := applyValues(req, r.PostForm); err != nil {
 			return err
 		}
-	case mediaType == "":
+	case "":
 		// A POST with a body but no Content-Type: treat it as raw data
 		// rather than guessing, which is what a curl --data-binary does.
 		body, err := io.ReadAll(r.Body)
@@ -265,6 +265,9 @@ func unknownJSONField(err error) (string, bool) {
 // applyMultipart reads form fields and then file parts, so an uploaded file
 // overrides a string field with the same name.
 func applyMultipart(req *Request, r *http.Request) error {
+	// The body is already capped by withBodyLimit's MaxBytesReader, so the
+	// parse cannot buffer more than that however many parts are declared.
+	//nolint:gosec // G120: bounded upstream by BARQR_MAX_BODY
 	if err := r.ParseMultipartForm(maxMultipartMemory); err != nil {
 		return newFault(http.StatusBadRequest, CodeBadRequest, "malformed multipart body")
 	}

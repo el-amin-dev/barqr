@@ -48,6 +48,22 @@ func toMap(payload any) (map[string]any, error) {
 	return structToMap(payload)
 }
 
+// payloadMap is the first line of every Build: it normalises the payload into
+// a map and rejects any key the builder does not declare.
+//
+// Keeping the two steps together means a new builder cannot forget the second
+// one and silently ignore a misspelled field.
+func payloadMap(payload any, fs []Field) (map[string]any, error) {
+	m, err := toMap(payload)
+	if err != nil {
+		return nil, err
+	}
+	if err = checkFields(m, fs); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 // structToMap converts one of the exported payload structs into the map form,
 // keyed by json tag. Zero-valued fields are skipped so that an unset optional
 // field is indistinguishable from an absent map key — otherwise every struct

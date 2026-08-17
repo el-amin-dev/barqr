@@ -194,8 +194,8 @@ func (s *Server) serveResult(w http.ResponseWriter, r *http.Request, res *result
 
 	w.Header().Set("Content-Type", res.MIME)
 	w.Header().Set("Content-Length", strconv.Itoa(len(res.Body)))
-	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Disposition", contentDisposition(res.Filename, res.Attachment))
+	setRenderSecurityHeaders(w)
 
 	s.cacheable(w)
 
@@ -204,9 +204,36 @@ func (s *Server) serveResult(w http.ResponseWriter, r *http.Request, res *result
 		return
 	}
 	w.WriteHeader(http.StatusOK)
-	if _, err := w.Write(res.Body); err != nil {
+	// The body is a rendered image, served with a Content-Type this process
+	// chose, nosniff, and the sandboxing CSP above — not caller-controlled
+	// markup on an HTML content type.
+	if _, err := w.Write(res.Body); err != nil { //nolint:gosec // G705: see setRenderSecurityHeaders
 		s.log.Debug("writing rendered output failed", "error", err.Error())
 	}
+}
+
+// renderCSP is the content-security policy served with every rendered code.
+//
+// SVG is the reason this exists. An SVG document can carry script, and barqr
+// serves it inline from the same origin as whatever embeds it — so if any
+// injection ever slipped past the writer's escaping, the browser would execute
+// it with that origin's privileges. Denying every resource type and sandboxing
+// the document makes the whole class of bug unexploitable rather than relying
+// on the escaping being perfect forever.
+//
+// The style allowance exists because SVG presentation attributes are how the
+// writer colours a code at all.
+const renderCSP = "default-src 'none'; style-src 'unsafe-inline'; sandbox"
+
+// setRenderSecurityHeaders applies the headers every rendered response needs.
+func setRenderSecurityHeaders(w http.ResponseWriter) {
+	// nosniff keeps a browser from re-interpreting a PNG as something
+	// executable; the CSP covers the formats that are documents in their own
+	// right.
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Security-Policy", renderCSP)
+	w.Header().Set("X-Frame-Options", "DENY")
+	w.Header().Set("Referrer-Policy", "no-referrer")
 }
 
 // cacheable sets the caching policy for a deterministic response.

@@ -67,10 +67,10 @@ func TestMeCardParse(t *testing.T) {
 		map[string]any{"last_name": "Lovelace", "first_name": "Ada"})
 
 	assertNotParsed(t, b,
-		"MECARD:N:Lovelace,Ada;",           // one terminator, not two
+		"MECARD:N:Lovelace,Ada;",                // one terminator, not two
 		"MECARD:N:Lovelace,Ada;BDAY:19151210;;", // a field this builder cannot rebuild
-		"MECARD:N:Lovelace;;",              // the name is not two components
-		"MECARD:NOTE:hello;;",              // no name at all
+		"MECARD:N:Lovelace;;",                   // the name is not two components
+		"MECARD:NOTE:hello;;",                   // no name at all
 		"MECARD:N:Lovelace,Ada;TEL:call me;;",   // a number Build would reject
 		"MECARD:;;",
 	)
