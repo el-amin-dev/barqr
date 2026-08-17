@@ -80,12 +80,22 @@ func (s *Server) handleBuild(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.noCacheIfPrivate(w)
-	s.writeJSON(w, r, http.StatusOK, map[string]any{
+	out := map[string]any{
 		"type":   b.Name(),
 		"data":   raw,
 		"length": len(raw),
-	})
+	}
+
+	// A builder that detects something about its input reports it here. Most
+	// do not implement this, and the field is absent rather than empty.
+	if d, ok := b.(builder.Describer); ok {
+		if detected, err := d.Describe(req.Payload); err == nil {
+			out["detected"] = detected
+		}
+	}
+
+	s.noCacheIfPrivate(w)
+	s.writeJSON(w, r, http.StatusOK, out)
 }
 
 // handleValidate reports what a request would produce without producing it.

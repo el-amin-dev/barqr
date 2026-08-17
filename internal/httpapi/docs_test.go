@@ -587,13 +587,21 @@ func TestDocsPlaceholdersAreSubstituted(t *testing.T) {
 					t.Errorf("%s survived into the served page", placeholder)
 				}
 			}
-			// The stylesheet is injected rather than linked, so its presence is
-			// the proof the substitution actually ran. Assert a token that is
-			// load-bearing rather than incidental: without --md-on-surface
-			// there is no text colour at all.
+			// Swagger UI and ReDoc are deliberately stock: the shared theme is
+			// not injected into them, because its element-level rules leaked
+			// into their DOM and flattened their own colour language. The
+			// pages barqr owns must still carry it.
+			stock := page.name == "swagger" || page.name == "redoc"
+
 			for _, token := range []string{"--md-primary", "--md-on-surface", "--md-surface"} {
-				if !bytes.Contains(page.body, []byte(token)) {
-					t.Errorf("the theme token %s is missing; the page will render unstyled", token)
+				has := bytes.Contains(page.body, []byte(token))
+				switch {
+				case stock && has:
+					t.Errorf("%s should be stock, but the barqr theme token %s "+
+						"was injected into it", page.name, token)
+				case !stock && !has:
+					t.Errorf("the theme token %s is missing; the page will render unstyled",
+						token)
 				}
 			}
 		})

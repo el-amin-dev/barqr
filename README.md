@@ -12,7 +12,7 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Image](https://img.shields.io/badge/image-9.3%20MB-brightgreen)](Dockerfile)
 
-**15 symbologies · 17 payload builders · 12 output formats · 4 ms per code**
+**15 symbologies · 18 payload builders · 12 output formats · 4 ms per code**
 
 </div>
 
@@ -62,6 +62,29 @@ honours `style.fg`/`style.bg`.
 No Go toolchain installed? `make` runs the compiler, linter, and tests in pinned
 containers automatically. A fresh clone needs nothing but Docker.
 
+### Or open it in a browser
+
+```
+http://localhost:3000/            the landing page — public, no key
+http://localhost:3000/v1/docs     an interactive request builder
+http://localhost:3000/v1/docs/swagger
+http://localhost:3000/v1/docs/redoc
+http://localhost:3000/v1/openapi.json
+```
+
+The dashboard builds a request by clicking and shows the URL, the curl line, the
+JSON body and a live preview of the code, side by side. Swagger UI and ReDoc are
+bundled in the image, not fetched from a CDN — the container is distroless and
+may have no egress at all, and documentation that needs the internet is not
+documentation you can rely on at three in the morning.
+
+Every page renders itself from the live registries, so it cannot describe an
+endpoint, symbology, or output format this build does not have.
+
+The documentation asks for your API key once and remembers it for the session.
+`BARQR_DOCS=false` removes the whole surface.
+
+
 ## Why barqr
 
 Every project eventually needs a QR code, and every project solves it differently:
@@ -79,8 +102,12 @@ a rate limit and a privacy policy. barqr replaces all three with one endpoint.
 | **Deny by default** | Binds loopback, demands an API key, and refuses to boot if that combination would expose it. |
 | **Small** | 9.3 MB distroless image: no shell, no package manager, unprivileged user, read-only rootfs. |
 
-Non-goals, on purpose: no web UI, no accounts, no billing, no image editing, no
-"AI" anything. It renders codes.
+Non-goals, on purpose: no accounts, no billing, no image editing, no "AI"
+anything. It renders codes.
+
+The one HTML surface is the documentation, and it is deliberately scoped to
+that: there is no dashboard for *making* codes for end users, no saved history,
+nothing stateful. `BARQR_DOCS=false` removes it entirely.
 
 ### What it does
 
@@ -88,10 +115,10 @@ Non-goals, on purpose: no web UI, no accounts, no billing, no image editing, no
 |---|---|
 | **2D** | `qr` · `datamatrix` · `aztec` · `pdf417` |
 | **1D** | `code128` · `code39` · `code93` · `codabar` · `ean13` · `ean8` · `upca` · `upce` · `itf` · `itf14` · `2of5` |
-| **Payloads** | `url` · `wifi` · `vcard` · `mecard` · `email` · `tel` · `sms` · `whatsapp` · `geo` · `event` · `otp` · `crypto` · `epc` · `bookmark` · `app` · `text` · `raw` |
+| **Payloads** | `url` · `wifi` · `vcard` · `mecard` · `email` · `tel` · `sms` · `whatsapp` · `geo` · `location` · `event` · `otp` · `crypto` · `epc` · `bookmark` · `app` · `text` · `raw` |
 | **Output** | `png` · `svg` · `pdf` · `eps` · `jpeg` · `webp` · `ascii` · `unicode` · `ansi` · `json` · `datauri` · `txt` |
 | **Style** | 7 module shapes, 5 eye shapes, gradients, logo embedding with excavation, frames, captions |
-| **Also** | image decoding, batch (CSV/JSON → ZIP), label sheets, named presets, scannability scoring |
+| **Also** | image decoding, batch (CSV/JSON → ZIP), label sheets, named presets, scannability scoring, a browser docs UI |
 
 Twenty more symbologies are registered as *unavailable with a reason* rather than
 omitted, so `/v1/symbologies` never lies about what a given build can do.
@@ -224,6 +251,39 @@ dropped `output.formt` produces the wrong image and no clue why:
 ```
 
 Full reference: [`docs/API.md`](docs/API.md).
+
+### Point a code at a place
+
+The `location` builder takes whatever a person actually types — an address in any
+script, coordinates in any format, a plus code, a `geo:` URI, or a link they
+pasted from Google, Apple, Waze, OSM or Bing — works out what it is, and turns it
+into a map link.
+
+```bash
+curl -sG --data-urlencode 'payload.location=35.95277, 5.53753' \
+  localhost:3000/v1/build/location
+```
+
+```json
+{
+  "type": "location",
+  "data": "https://www.google.com/maps/search/?api=1&query=35.9527700%2C5.5375300",
+  "detected": { "kind": "coordinates", "confidence": 1, "lat": 35.95277, "lng": 5.53753 }
+}
+```
+
+`detected.kind` is one of `coordinates` · `address` · `plus_code` · `geo_uri` ·
+`map_link` · `link` · `directions`, so a caller can act on what was understood
+rather than guessing. Swap the endpoint and the same payload becomes the code
+itself, in whatever format you asked for:
+
+```bash
+curl -G --data-urlencode 'payload.location=45 Rue Didouche Mourad, Alger' \
+  'localhost:3000/v1/qr?type=location&output.format=svg' -o place.svg
+```
+
+It also does directions — `from Setif to Algiers`, or `Setif -> Algiers` — and
+honours `origin`, `mode`, `zoom`, `language` and `region`.
 
 ### Will it actually scan?
 
@@ -404,7 +464,7 @@ and tested; M9 is the release hardening.
 | ✅ | **M6** print | pdf and eps writers, mm/inch/dpi sizing |
 | ✅ | **M7** decode | `/v1/decode`, header-first bomb guards, round-trip tested |
 | ✅ | **M8** bulk | `/v1/batch`, `/v1/sheet`, presets |
-| ▶ | **M9** hardening | fuzzing, SBOM, cosign signing, published image, v1.0.0 |
+| ▶ | **M9** hardening | fuzzing ✅, gosec ✅, security review ✅, docs UI ✅ — release workflow written, image not yet published |
 | | **M10** optional | zint `full` build tag, dynamic-code module |
 
 ### Benchmarks

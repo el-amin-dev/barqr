@@ -44,6 +44,21 @@ boot when:
 In Compose, prefer `expose:` over `ports:`. In Kubernetes, use a `ClusterIP` Service
 with a `NetworkPolicy` — no `Ingress`.
 
+## Documentation, in the image
+
+```
+http://localhost:3000/            landing page — public, no key
+http://localhost:3000/v1/docs     interactive request builder
+http://localhost:3000/v1/docs/swagger
+http://localhost:3000/v1/docs/redoc
+http://localhost:3000/v1/openapi.json
+```
+
+Swagger UI and ReDoc are bundled, not fetched from a CDN, so they work on a
+host with no egress. Every page is generated from the live registries, so it
+describes exactly what this image can do. The docs ask for your API key once.
+`BARQR_DOCS=false` removes the whole surface.
+
 ## Configuration
 
 Environment variables only; there are no config files. Invalid values are fatal rather
@@ -65,6 +80,8 @@ cannot quietly leave you unauthenticated.
 | `BARQR_ALLOW_REMOTE_FETCH` | `false` | Remote logo/background fetching (SSRF surface). |
 | `BARQR_METRICS` | `true` | Prometheus endpoint. |
 | `BARQR_LOG_LEVEL` | `info` | `debug` · `info` · `warn` · `error`. |
+| `BARQR_DOCS` | `true` | The browser documentation at `/` and `/v1/docs`. |
+| `BARQR_STRICT_SCANNABILITY` | `warn` | `off` · `warn` · `strict`; strict refuses an unreadable design. |
 
 Full table: [`docs/DEPLOY.md`](https://github.com/el-amin-dev/barqr/blob/main/docs/DEPLOY.md).
 Print the effective configuration, secrets redacted:

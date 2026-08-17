@@ -89,3 +89,20 @@ type Builder interface {
 	// validation.
 	Fields() []Field
 }
+
+// Describer is an optional interface a Builder may implement to report what it
+// understood about a payload, beyond the string it produced.
+//
+// Most builders have nothing to add: a vCard is a vCard, and the payload the
+// caller sent is the whole story. It exists for the builders that *detect*
+// something — `location` infers whether it was handed an address, a coordinate
+// pair, a plus code, or somebody else's map link, and a caller acting on that
+// answer needs to see it and how confident the guess was.
+//
+// The HTTP layer includes the result in GET /v1/build/{type} when a builder
+// implements it, and omits the field entirely when it does not.
+type Describer interface {
+	// Describe reports what the builder made of the payload. The map is
+	// serialised straight to JSON, so its keys are part of the API.
+	Describe(payload any) (map[string]any, error)
+}

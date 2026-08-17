@@ -74,7 +74,19 @@ Two rules:
 | `BARQR_LOG_LEVEL` | `info` | `debug` \| `info` \| `warn` \| `error`. |
 | `BARQR_LOG_FORMAT` | `json` | `json` \| `text`. JSON to stdout; never to a file. |
 | `BARQR_PRESETS_PATH` | *(empty)* | Preset bundle location. |
-| `BARQR_DYNAMIC` | `false` | Opt-in dynamic-code module. |
+| `BARQR_DOCS` | `true` | The browser documentation at `/` and `/v1/docs`. |
+| `BARQR_DYNAMIC` | `false` | Opt-in dynamic-code module. **Not implemented in this build** — setting it warns at boot. |
+
+### Not honoured by this build
+
+Two documented variables parse and validate but have no feature behind them yet.
+Rather than accept them silently, barqr warns at boot and the API rejects a
+request that depends on them:
+
+| Variable | What happens |
+|---|---|
+| `BARQR_ALLOW_REMOTE_FETCH` | Warns at boot. `style.logo` accepts `data:` URIs only; a remote reference is refused with `501 UNSUPPORTED_OPTION` rather than ignored. `BARQR_FETCH_*` are inert. |
+| `BARQR_DYNAMIC` | Warns at boot. `/v1/dynamic` is not routed. |
 
 ---
 

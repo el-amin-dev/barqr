@@ -202,6 +202,7 @@ curl 'localhost:3000/v1/build/wifi?payload.ssid=Lobby&payload.password=guest2026
 | Type | Produces |
 |---|---|
 | `text` | the text verbatim |
+| `location` | a Google Maps link, from whatever the user typed — see below |
 | `url` | a normalised URL; adds `https://` when no scheme is given |
 | `email` | `mailto:` with subject and body |
 | `tel` | `tel:` |
@@ -221,6 +222,75 @@ curl 'localhost:3000/v1/build/wifi?payload.ssid=Lobby&payload.password=guest2026
 
 Every builder round-trips: `Parse(Build(payload))` returns an equal payload, asserted
 across the whole registry and fuzzed.
+
+### `location` — auto-detected places
+
+`location` reads free-form input and works out what it is before building the
+link, so a caller does not have to classify it first.
+
+```bash
+curl -sG --data-urlencode 'payload.location=35.95277, 5.53753' \
+  localhost:3000/v1/build/location
+```
+
+```json
+{
+  "type": "location",
+  "data": "https://www.google.com/maps/search/?api=1&query=35.9527700%2C5.5375300",
+  "length": 68,
+  "detected": { "kind": "coordinates", "confidence": 1, "lat": 35.95277, "lng": 5.53753 }
+}
+```
+
+It accepts an address in any script, decimal or DMS coordinates (including
+Arabic-Indic digits), Open Location Codes, `geo:` URIs, links from Google,
+Apple, Waze, OpenStreetMap or Bing, and `from A to B` directions requests.
+
+| `detected.kind` | Meaning |
+|---|---|
+| `coordinates` · `geo_uri` | a latitude/longitude pair; `lat` and `lng` are returned |
+| `map_link` | coordinates recovered from another provider's link |
+| `link` | a Google link, passed through unchanged |
+| `plus_code` | an Open Location Code |
+| `directions` | a route; `origin` was given or inferred |
+| `address` | free text, sent as a place search |
+
+`confidence` is `1` for an unambiguous match and lower for a fallback, so a
+caller can decide whether to confirm with the user before rendering.
+
+Options: `origin`, `mode` (`driving`/`walking`/`bicycling`/`transit`), `zoom`
+(1–21), `language`, `region`.
+
+The same payload becomes the code itself on any render endpoint:
+
+```bash
+curl -G --data-urlencode 'payload.location=45 Rue Didouche Mourad, Alger' \
+  'localhost:3000/v1/qr?type=location&output.format=svg' -o place.svg
+```
+
+`detected` appears on any builder that implements the optional `Describer`
+interface, and is absent on those that do not.
+
+---
+
+## Documentation UI
+
+| Route | |
+|---|---|
+| `GET /` | Public landing page. No key. |
+| `GET /v1/docs` | Interactive request builder with a live preview. |
+| `GET /v1/docs/swagger` | Swagger UI, bundled in the image. |
+| `GET /v1/docs/redoc` | ReDoc, bundled in the image. |
+
+A browser cannot attach an `X-API-Key` header to a navigation, so the docs
+resolve a key from the header, a `barqr_key` cookie, or a one-shot `?key=`
+parameter, and answer an unauthorised browser with an HTML prompt while a
+scripted client still receives the JSON error envelope. Failed attempts are
+rate-limited per source address.
+
+`BARQR_DOCS=false` removes `/` and `/v1/docs` entirely.
+
+---
 
 > **Payloads are secrets.** A `wifi` or `otp` payload carries a network key or an
 > authenticator seed. barqr never logs payload contents, and both payload types

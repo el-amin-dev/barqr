@@ -137,6 +137,52 @@ func (b locationBuilder) Build(payload any) (string, error) {
 	return r.URL, nil
 }
 
+// Describe reports what the resolver made of the input.
+//
+// The URL alone hides the interesting part: whether "35.95, 5.53" was read as
+// a coordinate pair or fell through to a text search, and how sure the
+// resolver was. A caller deciding what to do next — render a code, show a
+// confirmation, ask the user to be more specific — needs that, and it is
+// already computed on the way to the URL.
+func (b locationBuilder) Describe(payload any) (map[string]any, error) {
+	m, err := payloadMap(payload, b.Fields())
+	if err != nil {
+		return nil, err
+	}
+
+	loc, err := strReq(m, "location")
+	if err != nil {
+		return nil, err
+	}
+	opts, err := locationOptions(m)
+	if err != nil {
+		return nil, err
+	}
+
+	r := mapsurl.Resolve(loc, mapsurl.WithOptions(opts))
+
+	out := map[string]any{
+		"kind":       string(r.Kind),
+		"confidence": r.Confidence,
+		"url":        r.URL,
+	}
+	// Only report what was actually recovered: a nil coordinate is meaningful
+	// and must not appear as 0,0, which is a real place in the Atlantic.
+	if r.HasCoords() {
+		out["lat"], out["lng"] = *r.Lat, *r.Lng
+	}
+	if r.Query != "" {
+		out["query"] = r.Query
+	}
+	if r.Normalized != "" && r.Normalized != loc {
+		out["normalized"] = r.Normalized
+	}
+	if len(r.Notes) > 0 {
+		out["notes"] = r.Notes
+	}
+	return out, nil
+}
+
 // locationOptions reads the tuning fields and rejects the values Google would
 // quietly ignore.
 func locationOptions(m map[string]any) (mapsurl.Options, error) {

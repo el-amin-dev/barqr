@@ -5,101 +5,37 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <title>barqr — API reference</title>
-<style>{{STYLE}}</style>
 <style>
-/* --- pinned to light -------------------------------------------------------
- *
- * Swagger UI and ReDoc are both light-first designs whose dark handling is
- * poor: their own stylesheets hard-code near-black text and mid-grey rules
- * that are unreadable on a dark surface, and neither exposes enough theming to
- * fix it properly from outside. Rather than ship something that looks broken
- * half the time, these two views are always light.
- *
- * The landing page and the dashboard still follow prefers-color-scheme — they
- * are ours end to end, so they can.
- *
- * These declarations come after the injected theme, so at equal specificity
- * they win over its dark media block.
- * ------------------------------------------------------------------------- */
-:root {
-  color-scheme: light;
+  /* Stock ReDoc, deliberately.
+   *
+   * The shared barqr theme is NOT injected here and no chrome is added around
+   * the widget: ReDoc ships a complete, considered layout, and every attempt
+   * to dress it up fought its own stylesheet and lost. The only rules below
+   * are the ones needed to give it the full viewport and to render the
+   * fetch-failure message, which has to exist because ReDoc cannot report one
+   * itself when the spec is fetched on its behalf. */
+  html, body { margin: 0; padding: 0; height: 100%; }
 
-  --md-primary: #0b57d0;
-  --md-on-primary: #ffffff;
-  --md-primary-container: #d3e3fd;
-  --md-on-primary-container: #041e49;
-  --md-secondary: #00639b;
-  --md-secondary-container: #c2e7ff;
-  --md-on-secondary-container: #001d35;
-  --md-tertiary: #146c2e;
-  --md-tertiary-container: #c4eed0;
-  --md-on-tertiary-container: #072711;
-  --md-error: #b3261e;
-  --md-on-error: #ffffff;
-  --md-error-container: #f9dedc;
-  --md-on-error-container: #410e0b;
-  --md-warning: #a05a00;
-  --md-warning-container: #ffdfa8;
-
-  --md-surface: #f8fafd;
-  --md-surface-container-lowest: #ffffff;
-  --md-surface-container-low: #f0f4f9;
-  --md-surface-container: #eaeef6;
-  --md-surface-container-high: #e4e9f1;
-  --md-surface-container-highest: #dde3ea;
-  --md-on-surface: #1f1f1f;
-  --md-on-surface-variant: #444746;
-  --md-outline: #747775;
-  --md-outline-variant: #c4c7c5;
-  --md-inverse-surface: #303030;
-  --md-inverse-on-surface: #f2f2f2;
-
-  --md-elev-1: 0 1px 2px rgba(0, 0, 0, .3), 0 1px 3px 1px rgba(0, 0, 0, .15);
-  --md-elev-2: 0 1px 2px rgba(0, 0, 0, .3), 0 2px 6px 2px rgba(0, 0, 0, .15);
-  --md-elev-3: 0 4px 8px 3px rgba(0, 0, 0, .15), 0 1px 3px rgba(0, 0, 0, .3);
-}
-
-html, body { background: var(--md-surface); color: var(--md-on-surface); }
-
-select {
-  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23444746'%3E%3Cpath d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
-}
-</style>
-
-<style>
-/* Page chrome only; ReDoc renders itself from the theme object below. */
-.topbar {
-  position: sticky; top: 0; z-index: 20;
-  display: flex; align-items: center; gap: .75rem; flex-wrap: wrap;
-  padding: .65rem 1.25rem;
-  background: var(--md-surface);
-  border-bottom: 1px solid var(--md-outline-variant);
-}
-.topbar .brand {
-  font-size: 1.05rem; font-weight: 700; letter-spacing: -.025em;
-  text-decoration: none; color: var(--md-on-surface);
-}
-.topbar .links { margin-left: auto; display: flex; gap: .4rem; flex-wrap: wrap; }
-
-#status { max-width: 620px; margin: 3rem auto; padding: 0 1.5rem; }
-#status pre { white-space: pre-wrap; }
-.alert-error { border-left-color: var(--md-error); }
+  #status {
+    max-width: 40rem;
+    margin: 4rem auto;
+    padding: 0 1.5rem;
+    font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          Helvetica, Arial, sans-serif;
+    color: #1f1f1f;
+  }
+  #status h1 { font-size: 1.25rem; margin: 0 0 .5rem; }
+  #status pre {
+    background: #f1f3f4; border-radius: 8px; padding: .75rem 1rem;
+    overflow-x: auto; white-space: pre-wrap;
+    font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  #status a { color: #0b57d0; }
 </style>
 </head>
 <body>
 
-<header class="topbar">
-  <a class="brand" href="/">barqr</a>
-  <span class="badge">v{{VERSION}}</span>
-  <span class="muted small">API reference</span>
-  <nav class="links">
-    <a class="btn btn-outline btn-sm" href="/">Home</a>
-    <a class="btn btn-outline btn-sm" href="/v1/docs">Dashboard</a>
-    <a class="btn btn-outline btn-sm" href="/v1/docs/swagger">Swagger UI</a>
-  </nav>
-</header>
-
-<div id="status"><p class="muted">Loading the API reference…</p></div>
+<div id="status" hidden></div>
 <div id="redoc"></div>
 
 <script src="/v1/docs/redoc.js"></script>
@@ -107,150 +43,58 @@ select {
 (function () {
   "use strict";
 
-  var statusEl = document.getElementById("status");
-
+  // ReDoc fetches the spec itself and cannot attach a header, so the spec is
+  // fetched here with the key and handed over as an object.
   function cookie(name) {
-    var parts = document.cookie ? document.cookie.split("; ") : [];
+    var parts = document.cookie ? document.cookie.split(";") : [];
     for (var i = 0; i < parts.length; i++) {
-      var eq = parts[i].indexOf("=");
-      if (eq > 0 && decodeURIComponent(parts[i].slice(0, eq)) === name) {
-        return decodeURIComponent(parts[i].slice(eq + 1));
+      var kv = parts[i].split("=");
+      if (kv[0].trim() === name) {
+        return decodeURIComponent(kv.slice(1).join("=").trim());
       }
     }
     return "";
   }
 
-  // ReDoc's spec-url mode fetches the document itself and offers no way to add
-  // a header to that request, so on an instance with BARQR_AUTH_MODE=required
-  // it would render a permanent error. Fetching the spec here and handing
-  // ReDoc the parsed object sidesteps that entirely.
-  var key = cookie("barqr_key");
-  var headers = { "Accept": "application/json" };
-  if (key) {
-    headers["X-API-Key"] = key;
-  }
-
-  function fail(title, detail, showUnlock) {
-    var box = document.createElement("div");
-    box.className = "alert alert-error";
-
-    var head = document.createElement("div");
-    head.className = "alert-title";
-    head.textContent = title;
-    box.appendChild(head);
-
-    var body = document.createElement("p");
-    body.style.margin = "0";
-    body.textContent = detail;
-    box.appendChild(body);
-
-    if (showUnlock) {
-      var p = document.createElement("p");
-      p.style.margin = ".75rem 0 0";
+  function fail(title, detail, offerUnlock) {
+    var el = document.getElementById("status");
+    el.hidden = false;
+    var h = document.createElement("h1");
+    h.textContent = title;
+    el.appendChild(h);
+    var p = document.createElement("pre");
+    p.textContent = detail;
+    el.appendChild(p);
+    if (offerUnlock) {
       var a = document.createElement("a");
-      a.className = "btn btn-sm";
       a.href = "/v1/docs";
-      a.textContent = "Enter an API key";
-      p.appendChild(a);
-      box.appendChild(p);
+      a.textContent = "Enter an API key →";
+      el.appendChild(a);
     }
-
-    statusEl.textContent = "";
-    statusEl.appendChild(box);
   }
 
-  // This view is pinned to light (see the stylesheet note above), so the
-  // palette is fixed rather than read from prefers-color-scheme. ReDoc runs
-  // colour arithmetic over these, so they are literals: it cannot resolve a
-  // CSS custom property.
-  var palette = {
-    page: "#f8fafd", surface: "#f0f4f9", panel: "#1f1f1f",
-    text: "#1f1f1f", muted: "#444746",
-    border: "#c4c7c5", nested: "#eaeef6", accent: "#0b57d0"
-  };
-
-  var mono = 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, ' +
-             '"Liberation Mono", monospace';
-  var sans = 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, ' +
-             '"Helvetica Neue", Arial, sans-serif';
-
-  var options = {
-    hideDownloadButton: false,
-    expandResponses: "200,201",
-    requiredPropsFirst: true,
-    sortPropsAlphabetically: false,
-    nativeScrollbars: true,
-    // The header bar is sticky, so a deep link must stop short of it.
-    scrollYOffset: 54,
-    theme: {
-      colors: {
-        primary: { main: palette.accent },
-        text: { primary: palette.text, secondary: palette.muted },
-        border: { light: palette.border, dark: palette.border }
-      },
-      typography: {
-        fontSize: "15px",
-        fontFamily: sans,
-        headings: { fontFamily: sans, fontWeight: "600" },
-        code: {
-          fontFamily: mono,
-          color: palette.text,
-          backgroundColor: palette.nested,
-          wrap: true
-        }
-      },
-      sidebar: {
-        backgroundColor: palette.surface,
-        textColor: palette.text,
-        activeTextColor: palette.accent,
-        arrow: { color: palette.muted }
-      },
-      rightPanel: {
-        // ReDoc's stock right panel is near-black. That reads as a mistake
-        // beside a page pinned to light, so it takes a surface tone instead
-        // and the code blocks inside it keep the dark treatment, which is
-        // what a reader expects of code either way.
-        backgroundColor: palette.surface,
-        textColor: palette.text
-      },
-      schema: {
-        nestedBackground: palette.nested,
-        linesColor: palette.border,
-        typeNameColor: palette.muted,
-        typeTitleColor: palette.text
-      },
-      codeBlock: { backgroundColor: palette.panel }
-    }
-  };
+  var headers = {};
+  var key = cookie("barqr_key");
+  if (key) { headers["X-API-Key"] = key; }
 
   fetch("/v1/openapi.json", { headers: headers, credentials: "same-origin" })
-    .then(function (response) {
-      if (response.status === 401 || response.status === 403) {
-        var denied = new Error("unauthorized");
-        denied.unauthorized = true;
-        throw denied;
+    .then(function (res) {
+      if (res.status === 401 || res.status === 403) {
+        throw { unlock: true, message: "The API key is missing or was rejected." };
       }
-      if (!response.ok) {
-        throw new Error("the service answered " + response.status);
+      if (!res.ok) {
+        throw { message: "Fetching /v1/openapi.json returned " + res.status + "." };
       }
-      return response.json();
+      return res.json();
     })
     .then(function (spec) {
-      statusEl.parentNode.removeChild(statusEl);
-      Redoc.init(spec, options, document.getElementById("redoc"));
+      // No theme, no options beyond the scroll target: stock ReDoc.
+      Redoc.init(spec, {}, document.getElementById("redoc"));
     })
     .catch(function (err) {
-      if (err && err.unauthorized) {
-        fail("This instance needs an API key",
-             "The OpenAPI document is behind authentication and the key in this " +
-             "browser is missing or no longer valid. Enter it once on the docs " +
-             "page and this reference will load.",
-             true);
-        return;
-      }
       fail("The API reference could not be loaded",
-           "Fetching /v1/openapi.json failed: " + (err && err.message ? err.message : err),
-           false);
+           (err && err.message) || String(err),
+           !!(err && err.unlock));
     });
 })();
 </script>
