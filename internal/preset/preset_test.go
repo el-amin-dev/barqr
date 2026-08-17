@@ -49,12 +49,44 @@ func TestBuiltinShipsTheDocumentedPresets(t *testing.T) {
 	t.Parallel()
 
 	set := Builtin()
-	want := []string{"dark", "default", "label", "print", "sticker", "terminal", "ticket", "web"}
-	if got := set.Names(); !slices.Equal(got, want) {
-		t.Fatalf("Names() = %v, want %v", got, want)
+
+	// The layouts are pinned by name: each exists because a real caller would
+	// otherwise repeat the same options, and removing one is a breaking change
+	// to anybody naming it. The themes are checked by kind and count instead —
+	// they are an open set that is expected to grow, and themes_test.go holds
+	// them to the rules that actually matter.
+	wantLayouts := []string{
+		"dark", "default", "label", "print", "sticker", "terminal", "ticket", "web",
 	}
-	if set.Len() != len(want) {
-		t.Fatalf("Len() = %d, want %d", set.Len(), len(want))
+
+	var layouts, themeNames []string
+	for _, p := range set.All() {
+		switch p.Kind {
+		case KindTheme:
+			themeNames = append(themeNames, p.Name)
+		default:
+			layouts = append(layouts, p.Name)
+		}
+	}
+	slices.Sort(layouts)
+
+	if !slices.Equal(layouts, wantLayouts) {
+		t.Fatalf("layout presets = %v, want %v", layouts, wantLayouts)
+	}
+	if len(themeNames) == 0 {
+		t.Fatal("no themes are registered")
+	}
+	if got, want := set.Len(), len(layouts)+len(themeNames); got != want {
+		t.Fatalf("Len() = %d, want %d", got, want)
+	}
+
+	// A theme and a layout sharing a name would make one of them unreachable.
+	seen := make(map[string]bool, set.Len())
+	for _, n := range set.Names() {
+		if seen[n] {
+			t.Errorf("preset %q is registered twice", n)
+		}
+		seen[n] = true
 	}
 }
 
