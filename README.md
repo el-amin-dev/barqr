@@ -22,9 +22,13 @@
 
 ```bash
 docker run --rm -p 3000:3000 -e BARQR_BIND=0.0.0.0 -e BARQR_API_KEYS=dev-key \
-  ghcr.io/el-amin-dev/barqr:latest
+  ghcr.io/el-amin-dev/barqr:edge
 curl -H 'X-API-Key: dev-key' 'localhost:3000/v1/qr?data=https://barqr.dev' -o qr.png
 ```
+
+`edge` is the last commit of `main` that passed CI; `sha-<short>` beside it is the
+immutable handle to pin. `:latest` and the semver tags appear with the first tagged
+release.
 
 That is the whole integration. Every option is a query parameter, so a barqr URL
 *is* the image — paste one into an `<img src>` and you are done.
@@ -430,28 +434,37 @@ rewrite.
 ### 3. Docker Compose — internal network only
 
 `expose:` publishes the port to sibling containers but **not** to the host. This is the
-intended deployment: barqr is reachable by your app and by nothing else.
+intended deployment: barqr is reachable by your app and by nothing else. The complete
+file, commented line by line, is [`deploy/docker-compose.yml`](deploy/docker-compose.yml).
 
 ```yaml
 services:
   app:
-    build: .
+    image: your-app:latest    # whatever calls barqr
     environment:
       BARQR_URL: http://barqr:3000
       BARQR_KEY: ${BARQR_KEY:?set BARQR_KEY}
     depends_on: [barqr]
 
   barqr:
-    image: barqr:dev          # ghcr.io/el-amin-dev/barqr:latest once published
+    image: barqr:dev          # or ghcr.io/el-amin-dev/barqr:edge
     expose: ["3000"]          # NOT ports: — keep it off the host
     environment:
       BARQR_BIND: 0.0.0.0     # inside the container network namespace only
       BARQR_API_KEYS: ${BARQR_KEY:?set BARQR_KEY}
       BARQR_RATE_LIMIT: 600/min
+      BARQR_MAX_CANVAS_PX: 4000000   # the 25 MP default wants ~100 MB per request
+      BARQR_SHUTDOWN_GRACE: 20s
+    user: "65532:65532"
     read_only: true
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
+    stop_grace_period: 30s    # must exceed the drain window; it defaults to 10s
 ```
+
+`stop_grace_period` is the one people leave out. Compose's default is 10 seconds —
+shorter than even the default 15s drain — so without it every `compose up` of a new
+image kills requests that were still being served.
 
 ### 4. Kubernetes — ClusterIP sidecar or shared service
 
@@ -463,9 +476,12 @@ readinessProbe:
 ```
 
 `/v1/readyz` flips to `503` the instant `SIGTERM` arrives and *before* connections are
-cut, so a rolling update drains cleanly instead of dropping in-flight renders. Expose it
-as a `ClusterIP` Service with a `NetworkPolicy` allowing ingress only from labelled
-pods — no `Ingress` object. A full manifest is in [`docs/DEPLOY.md`](docs/DEPLOY.md).
+cut, so a rolling update drains cleanly instead of dropping in-flight renders. Liveness
+must not point at it for that same reason — a draining pod would be declared dead and
+killed mid-drain. Expose it as a `ClusterIP` Service with a `NetworkPolicy` allowing
+ingress only from labelled pods — no `Ingress` object. Applyable manifests are in
+[`deploy/k8s`](deploy/k8s) (`kubectl apply -k deploy/k8s`); the reasoning is in
+[`docs/DEPLOY.md`](docs/DEPLOY.md).
 
 ### 5. Behind a gateway or CDN
 
@@ -502,7 +518,7 @@ done and tested. M10 is explicitly optional and not started.
 | ✅ | **M6** print | pdf and eps writers, mm/inch/dpi sizing |
 | ✅ | **M7** decode | `/v1/decode`, header-first bomb guards, round-trip tested |
 | ✅ | **M8** bulk | `/v1/batch`, `/v1/sheet`, presets |
-| ✅ | **M9** hardening | fuzzing, gosec, adversarial security review, SSRF-guarded egress, browser docs UI, SBOM + cosign + Trivy, continuous delivery to GHCR |
+| ✅ | **M9** hardening | fuzzing, gosec, adversarial security review, SSRF-guarded egress, browser docs UI, the `location` builder (the 18th), 30 themes, `deploy/` manifests, SBOM + cosign + Trivy, continuous delivery to GHCR |
 | | **M10** optional | zint `full` build tag, dynamic-code module — not started, see [ADR-013](docs/DECISIONS.md) |
 
 ### Benchmarks
@@ -527,9 +543,9 @@ true colour. Repeat renders of the same URL are `304`s.
 | `fetch` | 96.3% | `builder` | 94.5% |
 | `encoder` | 94.5% | `batch` | 94.2% |
 | `decoder` | 93.8% | `render` | 93.2% |
-| `preset` | 92.8% | `writer` | 92.1% |
+| `preset` | 93.0% | `writer` | 92.1% |
 | `cmd/barqr` | 97.6% | `config` | 87.2% |
-| `httpapi` | 82.8% | `version` | 100% |
+| `httpapi` | 82.7% | `version` | 100% |
 
 Plus fuzz targets on the request decoder and every builder's `Parse`, and
 `internal/doccheck`, which parses this README and the reference docs and

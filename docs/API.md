@@ -659,15 +659,17 @@ struct's own tags. Enums list exactly what this instance accepts.
 
 ## Operational
 
-These three sit outside authentication: a probe cannot be expected to hold an API
-key, and they disclose nothing sensitive.
+The three probes sit outside authentication: a kubelet cannot be expected to hold an
+API key, and they disclose nothing sensitive. **`/metrics` is not one of them** — it
+needs a key like any other endpoint, so a scrape config without one collects `401`s.
+See [`DEPLOY.md`](DEPLOY.md#scraping-metrics).
 
-| Endpoint | Answers |
-|---|---|
-| `GET /v1/healthz` | `200` while the process can serve at all, **including while draining**. A failing liveness probe means "restart me". |
-| `GET /v1/readyz` | `200` when accepting traffic; `503` the instant shutdown begins, so a load balancer drains before connections are cut. |
-| `GET /v1/version` | Version, commit, build date, Go version, platform. |
-| `GET /metrics` | Prometheus exposition, when `BARQR_METRICS=true`. |
+| Endpoint | Auth | Answers |
+|---|---|---|
+| `GET /v1/healthz` | none | `200` while the process can serve at all, **including while draining**. A failing liveness probe means "restart me". |
+| `GET /v1/readyz` | none | `200` when accepting traffic; `503` the instant shutdown begins, so a load balancer drains before connections are cut. |
+| `GET /v1/version` | none | Version, commit, build date, Go version, platform. |
+| `GET /metrics` | **key** | Prometheus exposition, when `BARQR_METRICS=true`. |
 
 Metrics: `barqr_http_requests_total`, `barqr_http_request_duration_seconds`,
 `barqr_renders_total{symbology,format}`, `barqr_output_bytes_total`,

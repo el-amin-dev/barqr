@@ -10,7 +10,7 @@ reference is in [`../docs/DEPLOY.md`](../docs/DEPLOY.md).
 | `k8s/namespace.yaml` | Namespace `barqr`, with Pod Security Admission set to `restricted`. |
 | `k8s/deployment.yaml` | Deployment (3 replicas) and the PodDisruptionBudget. |
 | `k8s/service.yaml` | `ClusterIP` Service on port 3000. No Ingress — see the note in the file. |
-| `k8s/networkpolicy.yaml` | Ingress limited to pods labelled `barqr-client=true`; egress denied entirely. |
+| `k8s/networkpolicy.yaml` | Ingress limited to pods labelled `barqr-client=true`; egress denied entirely. Enforcement depends on the CNI — see below. |
 | `k8s/secret.example.yaml` | Template for the API-key Secret. Not applied, never filled in here. |
 | `k8s/kustomization.yaml` | Ties the four applied manifests together and sets the image and labels. |
 
@@ -29,6 +29,17 @@ here.
 
 Both files carry the reasoning inline. Read them before changing them; the
 comments explain what each line is holding up.
+
+### The NetworkPolicy is only as real as your CNI
+
+A NetworkPolicy is enforced by the CNI plugin, not by the API server, and an
+unenforced one is accepted, stored, and shown by `kubectl get netpol` exactly
+like an enforced one — there is no error and no warning. Calico, Cilium, Antrea,
+Weave and the managed offerings built on them enforce it; **stock Flannel and
+kindnet do not**, and there `networkpolicy.yaml` is inert: every pod in the
+cluster can still reach barqr, and barqr can still reach out. Check what your
+cluster runs before counting it as a control. If it does not enforce policy, the
+`ClusterIP` and the API key are the only two things left.
 
 ## Docker Compose
 
@@ -113,4 +124,6 @@ stay consistent:
 - **`BARQR_MAX_CANVAS_PX` (4,000,000) vs the memory limit** — the 25 MP default
   lets one request ask for a 100 MB pixel buffer, and `BARQR_CONCURRENCY`
   copies of that is an OOMKill. 4 MP is 16 MB per render, 128 MB across the
-  semaphore, inside the 256Mi limit. Raise them together or not at all.
+  semaphore, inside the 256Mi limit. `GOMEMLIMIT` (200MiB, ~80% of the limit) is
+  the third leg: it turns memory pressure into more GC rather than an OOMKill,
+  which the kernel gives Go no warning about. Raise them together or not at all.

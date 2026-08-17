@@ -11,9 +11,10 @@ Source: **<https://github.com/el-amin-dev/barqr>** · Apache-2.0
 
 ---
 
-> **Status: milestone M0 of 10.** The service skeleton, configuration layer, security
-> gate, and image are live and tested. Code rendering (`/v1/qr`) arrives in M1, and
-> published tags begin at that point. Until then, build locally with `make docker-build`.
+> **Status: M0–M9 complete**, `v1.0.0` not yet tagged. Every green push to `main`
+> publishes `edge`; released tags carry an SBOM, build provenance, and a keyless
+> cosign signature. M10 (a `full` build tag adding zint symbologies, and a dynamic-code
+> module) is explicitly optional and not started.
 
 ---
 
@@ -23,10 +24,15 @@ Source: **<https://github.com/el-amin-dev/barqr>** · Apache-2.0
 docker run --rm -p 3000:3000 \
   -e BARQR_BIND=0.0.0.0 \
   -e BARQR_API_KEYS=dev-key \
-  barqr:dev
+  ghcr.io/el-amin-dev/barqr:edge
 
 curl -s localhost:3000/v1/version
+curl -H 'X-API-Key: dev-key' 'localhost:3000/v1/qr?data=https://barqr.dev' -o qr.png
 ```
+
+`edge` is the last commit of `main` that passed CI; `sha-<short>` beside it is the
+immutable handle to pin. `latest` and the semver tags appear with the first tagged
+release.
 
 ## ⚠️ Read this before you publish a port
 
@@ -76,12 +82,20 @@ cannot quietly leave you unauthenticated.
 | `BARQR_RATE_LIMIT` | `120/min` | Per-key allowance. |
 | `BARQR_CONCURRENCY` | `8` | Worker semaphore; bursts queue rather than thrash. |
 | `BARQR_SHUTDOWN_GRACE` | `15s` | Drain window on `SIGTERM`. |
-| `BARQR_MAX_CANVAS_PX` | `25000000` | Render size cap. |
+| `BARQR_MAX_CANVAS_PX` | `25000000` | Render size cap. **Lower it if you set a memory limit** — see below. |
 | `BARQR_ALLOW_REMOTE_FETCH` | `false` | Remote logo/background fetching (SSRF surface). |
 | `BARQR_METRICS` | `true` | Prometheus endpoint. |
 | `BARQR_LOG_LEVEL` | `info` | `debug` · `info` · `warn` · `error`. |
 | `BARQR_DOCS` | `true` | The browser documentation at `/` and `/v1/docs`. |
 | `BARQR_STRICT_SCANNABILITY` | `warn` | `off` · `warn` · `strict`; strict refuses an unreadable design. |
+
+The `BARQR_MAX_CANVAS_PX` default is sized for a machine with memory to spare: 25 MP is
+a ~100 MB pixel buffer for one request, and `BARQR_CONCURRENCY` of those in flight is
+~800 MB. If you give the container a memory limit, set the cap alongside it —
+`4000000` is 16 MB per render and 128 MB across the semaphore, which is what the
+shipped manifests use. Also pair `BARQR_SHUTDOWN_GRACE` with the platform's kill
+deadline: Compose's `stop_grace_period` defaults to 10s, shorter than the 15s drain, so
+the default combination cuts live requests on every restart.
 
 Full table: [`docs/DEPLOY.md`](https://github.com/el-amin-dev/barqr/blob/main/docs/DEPLOY.md).
 Print the effective configuration, secrets redacted:
@@ -108,12 +122,16 @@ takes traffic.
 
 | Endpoint | Purpose |
 |---|---|
-| `GET /v1/healthz` | Liveness. |
-| `GET /v1/readyz` | Readiness — `503` the instant shutdown begins, so rollouts drain. |
-| `GET /v1/version` | Build identity. |
+| `GET\|POST /v1/qr` · `/v1/barcode/{symbology}` | Render a code. 15 symbologies, 12 output formats. |
+| `GET\|POST /v1/build/{type}` | Run a payload builder only — structured fields in, raw string out. |
+| `POST /v1/validate` · `/v1/decode` | Scannability report without rendering; image in, data out. |
+| `POST /v1/batch` · `/v1/sheet` | Many codes at once; a print-ready sheet of labels. |
+| `GET /v1/preset` · `GET\|POST /v1/preset/{name}` | 8 layout presets and 30 themes. A theme sets only shapes and colours, so `?data=x&output.format=svg` works on any of them, and every theme is checked against the real scannability report before it ships. |
+| `GET /v1/symbologies` · `/v1/openapi.json` | Capability matrix and OpenAPI 3.1, generated from the live registries. |
+| `GET /v1/healthz` · `/v1/readyz` · `/v1/version` | Liveness, readiness, build identity. **The only unauthenticated routes** — `/metrics` needs a key. |
+| `GET /metrics` | Prometheus exposition. |
 
-Rendering endpoints (`/v1/qr`, `/v1/barcode/{symbology}`, `/v1/decode`, `/v1/batch`)
-land across milestones M1–M8. See
+Full reference:
 [`docs/API.md`](https://github.com/el-amin-dev/barqr/blob/main/docs/API.md).
 
 ## Kubernetes probes
@@ -127,6 +145,15 @@ livenessProbe:
 readinessProbe:
   httpGet: { path: /v1/readyz, port: 3000 }
 ```
+
+Liveness must point at `/v1/healthz`, never `/v1/readyz`: `readyz` answers `503` the
+moment `SIGTERM` arrives, so a liveness probe on it would declare every draining pod
+dead and `SIGKILL` it mid-drain. Set `terminationGracePeriodSeconds` strictly above
+`BARQR_SHUTDOWN_GRACE` for the same reason.
+
+Complete manifests — Deployment, PodDisruptionBudget, Service, NetworkPolicy, and a
+Compose file — are in
+[`deploy/`](https://github.com/el-amin-dev/barqr/tree/main/deploy).
 
 ## Hardened run
 
@@ -147,5 +174,6 @@ barqr is stateless and writes nothing to disk, so a read-only root filesystem ne
 - **API reference** — [`docs/API.md`](https://github.com/el-amin-dev/barqr/blob/main/docs/API.md)
 - **Security model** — [`docs/SECURITY.md`](https://github.com/el-amin-dev/barqr/blob/main/docs/SECURITY.md)
 - **Deployment** — [`docs/DEPLOY.md`](https://github.com/el-amin-dev/barqr/blob/main/docs/DEPLOY.md)
+- **Ready-made manifests** — [`deploy/`](https://github.com/el-amin-dev/barqr/tree/main/deploy)
 
 Apache-2.0 © 2026 Mohamed El Amin BOUCHAREB

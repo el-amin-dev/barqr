@@ -112,13 +112,13 @@ before it is live.
 
 ## Docker Compose
 
-`expose:` publishes the port to sibling containers but not to the host — this is the
-intended shape.
+A ready-made file is in [`deploy/docker-compose.yml`](../deploy/docker-compose.yml),
+with the reasoning for every line inline. The shape, abridged:
 
 ```yaml
 services:
   app:
-    build: .
+    image: your-app:latest      # whatever calls barqr — replace this
     environment:
       BARQR_URL: http://barqr:3000
       BARQR_KEY: ${BARQR_KEY:?set BARQR_KEY}
@@ -126,23 +126,48 @@ services:
 
   barqr:
     image: barqr:dev
-    expose: ["3000"]
+    expose: ["3000"]            # NOT ports: — see below
     environment:
       BARQR_BIND: 0.0.0.0
       BARQR_API_KEYS: ${BARQR_KEY:?set BARQR_KEY}
       BARQR_RATE_LIMIT: 600/min
-      BARQR_CONCURRENCY: 16
+      BARQR_CONCURRENCY: 8
+      BARQR_MAX_CANVAS_PX: 4000000
+      BARQR_SHUTDOWN_GRACE: 20s
+    user: "65532:65532"
     read_only: true
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     restart: unless-stopped
+    stop_grace_period: 30s
 ```
 
-Ready-made files land in `deploy/docker-compose.yml` at M9.
+`expose:` publishes the port to sibling containers but not to the host — this is the
+intended shape, and [`SECURITY.md`](SECURITY.md#layer-1--network) explains why `ports:`
+is not a smaller version of it.
+
+Three of those lines are easy to leave out and each one costs something:
+
+- **`user: "65532:65532"`.** The image already declares it, but repeating it here means
+  a `docker compose run --user root` or a future base-image change cannot quietly hand
+  the process root.
+- **`stop_grace_period: 30s` paired with `BARQR_SHUTDOWN_GRACE: 20s`.** On `SIGTERM`
+  barqr answers `/v1/readyz` with `503` and then drains in-flight requests for up to
+  the grace window. Compose SIGKILLs at `stop_grace_period`, which **defaults to 10
+  seconds** — shorter than even the default 15s drain, so leaving it out cuts live
+  requests on every `compose up` of a new image. The platform's kill deadline must be
+  strictly greater than barqr's drain window, always, on both platforms.
+- **`BARQR_MAX_CANVAS_PX: 4000000`.** See the note under the Kubernetes manifest below;
+  the default and a small memory ceiling do not go together.
 
 ---
 
 ## Kubernetes
+
+Applyable manifests — Namespace, Deployment, PodDisruptionBudget, Service and
+NetworkPolicy — are in [`deploy/k8s`](../deploy/k8s), tied together by a
+`kustomization.yaml` and commented line by line. `kubectl apply -k deploy/k8s`.
+The Deployment, abridged to the parts an operator has to get right:
 
 ```yaml
 apiVersion: apps/v1
@@ -151,45 +176,116 @@ metadata:
   name: barqr
 spec:
   replicas: 3                     # stateless: scale flat, no coordination
+  strategy:
+    rollingUpdate: { maxUnavailable: 0, maxSurge: 1 }
   template:
     spec:
+      automountServiceAccountToken: false   # barqr never calls the API server
+      terminationGracePeriodSeconds: 30     # > BARQR_SHUTDOWN_GRACE, always
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532
+        runAsGroup: 65532
         seccompProfile: { type: RuntimeDefault }
       containers:
         - name: barqr
           image: barqr:dev
-          ports: [{ containerPort: 3000 }]
+          ports: [{ name: http, containerPort: 3000 }]
           env:
             - name: BARQR_BIND
               value: "0.0.0.0"
             - name: BARQR_API_KEYS
               valueFrom:
-                secretKeyRef: { name: barqr, key: api-keys }
+                secretKeyRef: { name: barqr-api-keys, key: api-keys, optional: false }
+            - name: BARQR_CONCURRENCY
+              value: "8"
+            - name: BARQR_MAX_CANVAS_PX     # NOT the 25000000 default — see below
+              value: "4000000"
+            - name: BARQR_SHUTDOWN_GRACE
+              value: "20s"
+            - name: GOMEMLIMIT              # ~80% of limits.memory
+              value: "200MiB"
+          startupProbe:                     # gates the other two on a cold pull
+            httpGet: { path: /v1/healthz, port: http }
+            periodSeconds: 1
+            failureThreshold: 30
           livenessProbe:
-            httpGet: { path: /v1/healthz, port: 3000 }
+            httpGet: { path: /v1/healthz, port: http }
           readinessProbe:
-            httpGet: { path: /v1/readyz, port: 3000 }
+            httpGet: { path: /v1/readyz, port: http }
           resources:
-            requests: { cpu: 50m, memory: 32Mi }
-            limits:   { memory: 128Mi }
+            requests: { cpu: 100m, memory: 96Mi }
+            limits:   { memory: 256Mi }     # no cpu limit — see Scaling
           securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
             readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false
             capabilities: { drop: [ALL] }
+            seccompProfile: { type: RuntimeDefault }
 ```
 
+The pod-level `securityContext` is inherited, but the container repeats it: a container
+entry can override the pod's, so the guarantee is written where the container is. That
+also makes the manifest admissible under Pod Security Admission `restricted`, which
+[`deploy/k8s/namespace.yaml`](../deploy/k8s/namespace.yaml) enforces.
+
 Expose it as a `ClusterIP` Service with a `NetworkPolicy` allowing ingress only from
-labelled pods. **Do not ship an `Ingress` object.** Manifests land in `deploy/k8s` at
-M9.
+labelled pods. **Do not ship an `Ingress` object.**
+
+### The canvas cap and the memory limit are one setting
+
+`BARQR_MAX_CANVAS_PX` defaults to `25000000`. At four bytes per pixel that is a
+**100 MB buffer for a single request**, and `BARQR_CONCURRENCY` of them in flight is
+800 MB — an OOMKill under any limit a small deployment would write. The two numbers
+have to be chosen together:
+
+| | Per render | Across the semaphore (8) |
+|---|---|---|
+| `BARQR_MAX_CANVAS_PX=25000000` (default) | ~100 MB | ~800 MB |
+| `BARQR_MAX_CANVAS_PX=4000000` (the manifests) | ~16 MB | ~128 MB |
+
+128 MB of pixel buffers plus the Go runtime and the encode buffer is what the `256Mi`
+limit above is sized for. `GOMEMLIMIT` is the second half of it: it is a Go runtime
+variable, not a barqr one, and it tells the collector to hold the heap under a soft
+ceiling below the cgroup limit, so pressure becomes more GC rather than an OOMKill —
+the kernel gives Go no warning and no chance to shed load. Set it to roughly 80% of
+`limits.memory`. Raise the pixel cap and you must raise the limit and `GOMEMLIMIT`
+with it, or not raise it at all.
 
 ### Rollouts
 
 `/v1/readyz` returns `503` as soon as `SIGTERM` arrives and *before* connections are
 cut, then the server drains for up to `BARQR_SHUTDOWN_GRACE`. Set
-`terminationGracePeriodSeconds` above that value so Kubernetes does not `SIGKILL`
-mid-drain.
+`terminationGracePeriodSeconds` strictly above that value — it must cover endpoint
+propagation across every kube-proxy plus the whole drain window — or the kubelet
+`SIGKILL`s mid-drain and the drain window is a lie. Raise the platform deadline
+*before* raising the grace, never after.
+
+`maxUnavailable: 0` means capacity never dips during a rollout: a new pod must pass
+readiness before an old one is asked to stop.
+
+### Scraping metrics
+
+**`/metrics` sits behind the API key.** Only `/v1/healthz`, `/v1/readyz` and
+`/v1/version` are unauthenticated, because a kubelet cannot hold a key. The reflexive
+`prometheus.io/scrape: "true"` pod annotation and nothing else therefore collects a
+steady stream of `401`s and no metrics at all. Give the scrape job the same Secret.
+barqr accepts `Authorization: Bearer <key>` as well as `X-API-Key`, which is the form
+Prometheus already speaks:
+
+```yaml
+scrape_configs:
+  - job_name: barqr
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/secrets/barqr/api-keys
+```
+
+Under the Prometheus Operator the same thing is `spec.authorization` on a
+`ServiceMonitor`, with the Secret mounted into the Prometheus pod.
+`BARQR_METRICS=false` turns the endpoint off entirely.
 
 ### Scaling
 
@@ -215,5 +311,6 @@ honoured. Version metadata is injected at link time:
 make docker-build VERSION=v1.2.3 IMAGE=ghcr.io/el-amin-dev/barqr IMAGE_TAG=v1.2.3
 ```
 
-Published multi-arch images (`linux/amd64`, `linux/arm64`) with SBOM, provenance, and
-cosign signatures arrive with the release workflow at M9.
+Multi-arch images (`linux/amd64`, `linux/arm64`) with SBOM, provenance, and cosign
+keyless signatures are published by the release workflow; every green push to `main`
+publishes `edge` to GHCR.

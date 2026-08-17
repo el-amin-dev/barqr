@@ -11,7 +11,7 @@ Where a control can be enforced by the program instead of documented in a runboo
 is enforced by the program. Two configurations are startup-fatal for exactly this
 reason.
 
-Status legend: ✅ implemented · ⏳ scheduled for the milestone shown.
+Status legend: ✅ implemented · ⚠️ implemented but dependent on something outside barqr.
 
 ---
 
@@ -20,9 +20,34 @@ Status legend: ✅ implemented · ⏳ scheduled for the milestone shown.
 | Control | Status |
 |---|---|
 | Default bind `127.0.0.1:3000` — unreachable from another host unless deliberately changed | ✅ |
-| Compose uses `expose:`, never `ports:` — reachable by sibling containers only | ✅ documented |
-| Kubernetes `ClusterIP` + `NetworkPolicy` restricting ingress to labelled pods | ⏳ M9 manifests |
+| Compose uses `expose:`, never `ports:` — reachable by sibling containers only | ✅ [`deploy/docker-compose.yml`](../deploy/docker-compose.yml) |
+| Kubernetes `ClusterIP` + `NetworkPolicy` restricting ingress to labelled pods | ⚠️ [`deploy/k8s`](../deploy/k8s) — enforcement depends on the CNI |
 | No `Ingress` object is shipped, ever | ✅ by omission |
+
+### `expose:` rather than `ports:` — the reason, not the preference
+
+`ports: ["3000:3000"]` does not merely publish a port. Docker writes its own iptables
+rules into the `DOCKER` chain, which is reached from `PREROUTING`/`FORWARD` **ahead of
+the host's `INPUT` chain** — so a published port binds `0.0.0.0` on the host and is
+*not* filtered by ufw or firewalld. An operator who checks `ufw status` sees the
+firewall they configured and does not see the hole. On a machine with a public
+interface that puts a QR renderer on the open internet behind nothing but an API key.
+
+That is the argument that has to stop someone adding `ports:` "temporarily". If host
+access is genuinely needed for debugging, bind the loopback explicitly —
+`ports: ["127.0.0.1:3000:3000"]` — and remove it again.
+
+### A NetworkPolicy is only as real as the CNI
+
+`deploy/k8s/networkpolicy.yaml` restricts ingress to pods labelled
+`barqr-client=true` and denies egress entirely. **A NetworkPolicy is enforced by the
+CNI plugin, not by the API server**, and an unenforced one is accepted, stored, and
+shown by `kubectl get netpol` exactly like an enforced one. Calico, Cilium, Antrea,
+Weave and the managed offerings built on them enforce it; **stock Flannel and kindnet
+do not**, and there the manifest is inert — every pod in the cluster can still reach
+barqr and barqr can still reach out. Confirm your cluster's plugin enforces policy
+before counting this as a control; if it does not, the ClusterIP and the API key are
+the only two things left.
 
 ---
 
@@ -31,10 +56,13 @@ Status legend: ✅ implemented · ⏳ scheduled for the milestone shown.
 | Control | Status |
 |---|---|
 | `BARQR_AUTH_MODE` = `required` (default) or `open` | ✅ |
-| `X-API-Key: <key>` or `Authorization: Bearer <key>` | ⏳ M2 middleware |
+| `X-API-Key: <key>` or `Authorization: Bearer <key>` | ✅ |
 | Keys SHA-256 hashed at boot; plaintext never stored on the config struct | ✅ |
 | Comparison via `subtle.ConstantTimeCompare`, evaluated against *every* key so neither the outcome nor which key matched leaks through timing | ✅ |
-| `Cache-Control: private` on responses when auth is on | ⏳ M2 |
+| Exactly three endpoints are unauthenticated — `/v1/healthz`, `/v1/readyz`, `/v1/version`. `/metrics` is **not** among them | ✅ |
+| Failed authentication is itself rate-limited per source address, by a limiter that runs *before* the auth check — otherwise a `401` returns without ever reaching it, and every key-checking endpoint is an unthrottled guessing oracle. A valid key costs nothing, so a busy legitimate caller is never throttled by it | ✅ |
+| `X-Forwarded-For` is deliberately ignored when identifying a caller: barqr does not know whether it sits behind a trusted proxy, and trusting a client-settable header would let anyone reset their own limit | ✅ |
+| `Cache-Control: private` on responses when auth is on | ✅ |
 
 ### Startup-fatal invariants ✅
 
@@ -70,13 +98,25 @@ here fails the build, not a review.
 
 | Control | Default | Status |
 |---|---|---|
-| Request body limit | `BARQR_MAX_BODY=2MB` | ⏳ M2 |
-| Request timeout | `BARQR_REQUEST_TIMEOUT=10s` | ⏳ M2 |
-| Per-key rate limit | `BARQR_RATE_LIMIT=120/min` | ⏳ M2 |
-| Global concurrency semaphore | `BARQR_CONCURRENCY=8` | ⏳ M2 |
-| Render canvas pixel cap | `BARQR_MAX_CANVAS_PX=25000000` | ⏳ M1 |
-| Batch item cap | `BARQR_MAX_BATCH_ITEMS=1000` | ⏳ M8 |
-| Decode pixel-count cap and decompression-bomb guard | — | ⏳ M7 |
+| Request body limit | `BARQR_MAX_BODY=2MB` | ✅ |
+| Request timeout | `BARQR_REQUEST_TIMEOUT=10s` | ✅ |
+| Per-key rate limit | `BARQR_RATE_LIMIT=120/min` | ✅ |
+| Global concurrency semaphore | `BARQR_CONCURRENCY=8` | ✅ |
+| Render canvas pixel cap | `BARQR_MAX_CANVAS_PX=25000000` | ✅ |
+| Batch item cap | `BARQR_MAX_BATCH_ITEMS=1000` | ✅ |
+| Decode pixel-count cap and decompression-bomb guard | — | ✅ |
+
+The canvas cap's default is sized for a machine with memory to spare, not for a small
+container: 25 MP is a ~100 MB buffer per render, and `BARQR_CONCURRENCY` of those is an
+OOMKill under a modest limit. Both shipped deployments lower it to 4,000,000 and pair
+it with an explicit memory ceiling — see
+[`DEPLOY.md`](DEPLOY.md#the-canvas-cap-and-the-memory-limit-are-one-setting).
+
+Decode guards run on the image *header*, before a single pixel is decoded: a
+hundred-byte PNG can declare fifty thousand pixels square, and any cap on the decoded
+size fires ten gigabytes too late. The decode caps cannot be switched off — a zero or
+negative value normalises to the default rather than meaning "unlimited". See
+[ADR-012](DECISIONS.md).
 
 Server-level deadlines are already in place: `ReadHeaderTimeout` (5s, Slowloris
 defence), `ReadTimeout`, `WriteTimeout`, and `IdleTimeout` are all set on the
@@ -123,8 +163,9 @@ from them.
 | Static binary, `CGO_ENABLED=0` | ✅ |
 | `-trimpath` — no absolute build paths in the binary | ✅ |
 | Read-only root filesystem supported; barqr is stateless and writes nothing to disk, so no `tmpfs` is required | ✅ |
-| `cap_drop: ALL`, `no-new-privileges` | ✅ documented |
-| SBOM, provenance, cosign keyless signing, Trivy gate on HIGH/CRITICAL | ⏳ M9 |
+| `cap_drop: ALL`, `no-new-privileges` | ✅ [`deploy/`](../deploy) |
+| SBOM, provenance, cosign keyless signing, Trivy gate on HIGH/CRITICAL | ✅ `.github/workflows/release.yml` |
+| Pod Security Admission `restricted`, `automountServiceAccountToken: false`, container-level `seccompProfile` | ✅ [`deploy/k8s`](../deploy/k8s) |
 
 ---
 
@@ -132,7 +173,7 @@ from them.
 
 Payloads routinely contain **Wi-Fi passwords and TOTP secrets**. Therefore:
 
-- payload contents are never logged at `info` level; ✅ policy, ⏳ M2 enforcement
+- payload contents are never logged at `info` level; ✅
 - `password`, `secret`, and `pw` fields are redacted in every log record, always;
 - `barqr check-config` and `serve --print-config` render `BARQR_API_KEYS` as
   `<redacted: N key(s)>`, so their output is safe to paste into a bug report — this is

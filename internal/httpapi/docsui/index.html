@@ -93,6 +93,52 @@
 
 .chips { display: flex; flex-wrap: wrap; gap: .3rem; }
 .chips code { font-size: .72rem; }
+
+/* --- theme gallery -------------------------------------------------------
+ * Auto-fill rather than a fixed column count: the same rule holds one card
+ * per row on a phone and six on a desktop, which is the whole of the
+ * responsive story. Cards are painted from the shared tokens only — the sole
+ * colours that come from the theme itself are the three swatch chips, which
+ * are inline styles because the palette is data, not a stylesheet. */
+.gallery {
+  display: grid; gap: .7rem;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+}
+.tcard {
+  display: flex; flex-direction: column; gap: .45rem;
+  padding: .55rem; border-radius: var(--md-corner-m);
+  border: 1px solid var(--md-outline-variant);
+  background: var(--md-surface-container-low);
+}
+/* The applied theme is marked with the accent border AND the "applied" chip:
+ * colour alone would say nothing to a reader who cannot see it. */
+.tcard.on { border-color: var(--md-primary); box-shadow: inset 0 0 0 1px var(--md-primary); }
+.tprev {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 116px; padding: .3rem; overflow: hidden;
+  border-radius: var(--md-corner-s); background: var(--md-surface-container);
+}
+.tprev img { display: block; width: 100%; height: auto; max-height: 150px; object-fit: contain; }
+.tprev .ph { font-size: .68rem; }
+.thead { display: flex; align-items: center; gap: .35rem; flex-wrap: wrap; }
+.thead code { font-size: .72rem; }
+/* .badge sets its own display, which outranks the hidden attribute — without
+ * this every card would claim to be the applied one. */
+.thead .badge[hidden] { display: none; }
+.thead .badge { font-size: .62rem; }
+.tdesc { font-size: .7rem; line-height: 1.3; color: var(--md-on-surface-variant); }
+.swatch { display: flex; gap: .2rem; flex: 0 0 auto; }
+.swatch i {
+  display: block; width: .8rem; height: .8rem; border-radius: var(--md-corner-full);
+  border: 1px solid var(--md-outline-variant);
+}
+/* Cards in a row stretch to the tallest, so the buttons are pushed to the
+ * bottom rather than floating wherever a two-line description leaves them. */
+.tcard .btn { width: 100%; margin-top: auto; }
+.themepick { display: flex; align-items: center; gap: .5rem; }
+.themepick select { flex: 1 1 auto; min-width: 0; }
+#presetgroups h4 { margin: 1.1rem 0 .4rem; font-size: .85rem; }
+#presetgroups > h4:first-child { margin-top: 0; }
 .reftables { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; }
 table.tight td, table.tight th { padding: .4rem .5rem; font-size: .8rem; }
 .scroll { overflow-x: auto; }
@@ -175,6 +221,19 @@ table.tight td, table.tight th { padding: .4rem .5rem; font-size: .8rem; }
 
       <div class="card">
         <h3>Style</h3>
+        <div class="field" id="themepickfield">
+          <label for="themepick">theme</label>
+          <div class="themepick">
+            <select id="themepick"></select>
+            <span class="swatch" id="themeswatch"></span>
+          </div>
+          <div class="hint">
+            A theme fills the six controls below and nothing else, so it composes with
+            any format or size. Edit one of them and this drops back to
+            <code>— custom —</code>. Every theme is drawn for real in the
+            <a href="#gallerysection">gallery</a>.
+          </div>
+        </div>
         <div class="fields">
           <div class="field">
             <label for="module">style.module</label>
@@ -315,6 +374,13 @@ table.tight td, table.tight th { padding: .4rem .5rem; font-size: .8rem; }
     </aside>
   </div>
 
+  <!-- --------------------------------------------------- theme gallery -->
+  <section id="gallerysection" hidden>
+    <h2>Theme gallery</h2>
+    <p class="muted small" id="gallerylead"></p>
+    <div class="gallery" id="gallery"></div>
+  </section>
+
   <!-- ------------------------------------------------------- reference -->
   <h2>Reference</h2>
   <p class="muted small">
@@ -342,12 +408,11 @@ table.tight td, table.tight th { padding: .4rem .5rem; font-size: .8rem; }
       <p class="muted small">
         A preset is a named bundle of these same option keys, expanded by
         <code>/v1/preset/{name}</code>. Applying one here just fills in the controls.
+        A <b>layout</b> answers where the code is going and sets format, resolution
+        and error correction; a <b>theme</b> sets shapes and colours only, so the two
+        compose.
       </p>
-      <div class="scroll">
-        <table class="tight"><thead><tr>
-          <th>Name</th><th>Description</th><th>Options</th><th></th>
-        </tr></thead><tbody id="presetrows"></tbody></table>
-      </div>
+      <div id="presetgroups"></div>
       <p class="hint" id="presetnote"></p>
     </div>
 
@@ -620,6 +685,14 @@ table.tight td, table.tight th { padding: .4rem .5rem; font-size: .8rem; }
       if (s.notes) { bits.push(s.notes); }
     }
     $("symnote").textContent = bits.join(" · ");
+
+    // The quiet zone default is the symbology's own — 4 for QR, 1 for Data
+    // Matrix, 10 for Code 128 — so the placeholder names the real number
+    // rather than saying "spec default" and leaving the reader to guess.
+    var qz = $("quiet_zone");
+    qz.placeholder = s && typeof s.quiet_zone === "number"
+      ? "default " + s.quiet_zone
+      : "spec default";
   }
   reg("encode.ecc", eccEl, D.defaults.ecc);
   reg("encode.quiet_zone", $("quiet_zone"), "", true);
@@ -652,6 +725,96 @@ table.tight td, table.tight th { padding: .4rem .5rem; font-size: .8rem; }
   colorPair("bg", "style.bg");
   colorPair("eye_fg", "style.eye_fg");
   reg("style.caption", $("caption"), "");
+
+  /* ---------------------------------------------------- theme picker ----
+   * The six controls above are one decision, not six, so they get one control
+   * as well. It is built from D.presets — no theme name is written on this
+   * page — and it is derived state rather than a source of truth: every update
+   * re-reads the six controls and drops the select back to "custom" the moment
+   * one of them no longer matches. That is the point. A select that kept
+   * showing "obsidian" after the foreground was edited by hand would be
+   * telling the reader something the request no longer says. */
+
+  var themeSel = $("themepick");
+  var themeSwatch = $("themeswatch");
+
+  // Light or dark is read off the theme's own background with the usual
+  // perceptual weighting. It is a grouping and nothing more, so a value that
+  // will not parse as a hex triple lands in its own group instead of guessing.
+  function bgGroup(p) {
+    var m = /^#([0-9a-f]{6})$/i.exec(String((p.options || {})["style.bg"] || "").trim());
+    if (!m) { return "Other"; }
+    var n = parseInt(m[1], 16);
+    var lum = 0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255);
+    return lum >= 140 ? "Light" : "Dark";
+  }
+
+  function themeByName(name) {
+    var themes = presetsOfKind("theme");
+    for (var i = 0; i < themes.length; i++) {
+      if (themes[i].name === name) { return themes[i]; }
+    }
+    return null;
+  }
+
+  (function buildThemePicker() {
+    var themes = presetsOfKind("theme");
+    if (!themes.length) {
+      // A build with no themes gets no picker rather than an empty one.
+      $("themepickfield").hidden = true;
+      return;
+    }
+
+    themeSel.appendChild(opt("", "— custom —"));
+    ["Light", "Dark", "Other"].forEach(function (name) {
+      var group = null;
+      themes.forEach(function (p) {
+        if (bgGroup(p) !== name) { return; }
+        if (!group) {
+          group = document.createElement("optgroup");
+          group.label = name;
+        }
+        group.appendChild(opt(p.name, p.description ? p.name + " — " + p.description : p.name));
+      });
+      if (group) { themeSel.appendChild(group); }
+    });
+
+    // applyPreset is the mechanism the preset table and the gallery already
+    // use: it writes through the control registry, syncs the colour pickers to
+    // the text boxes, and schedules the same update a typed edit would.
+    themeSel.addEventListener("change", function () {
+      var p = themeByName(themeSel.value);
+      if (p) { applyPreset(p); }
+    });
+  })();
+
+  // The chips show what the request actually carries, not what the select
+  // says, so they stay useful while the six controls are being edited by hand.
+  function paintThemeSwatch() {
+    clear(themeSwatch);
+    [["style.bg", "background"], ["style.fg", "modules"],
+     ["style.eye_fg", "finder accent"]].forEach(function (pair) {
+      var c = controls[pair[0]];
+      var v = c ? String(c.el.value).trim() : "";
+      var dot = el("i");
+      // An invalid colour is simply not applied by the CSSOM, which leaves the
+      // chip on the card's own background — the honest rendering of "unset".
+      dot.style.background = v || "transparent";
+      dot.title = pair[1] + (v ? " " + v : " — built-in default");
+      themeSwatch.appendChild(dot);
+    });
+  }
+
+  function syncThemePicker() {
+    if (!themeSel.options.length) { return; }
+    var themes = presetsOfKind("theme");
+    var match = "";
+    for (var i = 0; i < themes.length; i++) {
+      if (themeApplied(themes[i])) { match = themes[i].name; break; }
+    }
+    if (themeSel.value !== match) { themeSel.value = match; }
+    paintThemeSwatch();
+  }
 
   /* --------------------------------------------------------- output ----- */
 
@@ -843,6 +1006,12 @@ table.tight td, table.tight th { padding: .4rem .5rem; font-size: .8rem; }
     $("jsonhead").textContent = "POST " + path() + "  ·  Content-Type: application/json";
 
     renderFieldRows(ps);
+    // The theme surfaces are derived from the same controls this function has
+    // just read, so they are refreshed here rather than on a timer of their
+    // own — one debounce for the whole page.
+    syncThemePicker();
+    markThemes();
+    refreshGallery();
 
     var mine = ++seq;
     if (inflight) { inflight.abort(); }
@@ -1059,32 +1228,75 @@ table.tight td, table.tight th { padding: .4rem .5rem; font-size: .8rem; }
     });
   }
 
-  (function buildPresetTable() {
-    var tbody = $("presetrows");
+  /* Presets come in kinds — layout and theme — which answer two different
+   * questions, so they get two tables rather than one list sorted by name.
+   * The grouping is driven entirely by p.kind: an unfamiliar kind added to the
+   * API later lands in its own table instead of vanishing from this page. */
+
+  var kindLabels = { layout: "Layouts", theme: "Themes" };
+  function kindLabel(kind) { return kindLabels[kind] || kind + " presets"; }
+
+  // An absent kind is a layout: Preset.Kind is omitempty, so an operator's
+  // hand-written JSON preset arrives here with no kind at all.
+  function presetKind(p) { return p.kind || "layout"; }
+
+  function presetsOfKind(kind) {
+    var out = [];
+    D.presets.forEach(function (p) { if (presetKind(p) === kind) { out.push(p); } });
+    return out;
+  }
+
+  (function buildPresetTables() {
+    var host = $("presetgroups");
     var unapplied = {};
-
+    var order2 = ["layout", "theme"];   // the kinds this build knows, in order
     D.presets.forEach(function (p) {
-      var tr = el("tr");
-      var td0 = el("td");
-      td0.appendChild(el("code", null, p.name));
-      tr.appendChild(td0);
-      tr.appendChild(el("td", "small", p.description || "—"));
+      if (order2.indexOf(presetKind(p)) < 0) { order2.push(presetKind(p)); }
+    });
 
-      var keys = Object.keys(p.options || {}).sort();
-      var td2 = el("td", "chips");
-      keys.forEach(function (k) {
-        td2.appendChild(el("code", null, k + "=" + p.options[k]));
-        if (!controls[k]) { unapplied[k] = true; }
+    order2.forEach(function (kind) {
+      var items = presetsOfKind(kind);
+      if (!items.length) { return; }
+
+      var tbody = el("tbody");
+      items.forEach(function (p) {
+        var tr = el("tr");
+        var td0 = el("td");
+        td0.appendChild(el("code", null, p.name));
+        tr.appendChild(td0);
+        tr.appendChild(el("td", "small", p.description || "—"));
+
+        var keys = Object.keys(p.options || {}).sort();
+        var td2 = el("td", "chips");
+        keys.forEach(function (k) {
+          td2.appendChild(el("code", null, k + "=" + p.options[k]));
+          if (!controls[k]) { unapplied[k] = true; }
+        });
+        tr.appendChild(td2);
+
+        var td3 = el("td");
+        var btn = el("button", "btn btn-sm btn-outline", "Apply");
+        btn.type = "button";
+        btn.addEventListener("click", function () { applyPreset(p); });
+        td3.appendChild(btn);
+        tr.appendChild(td3);
+        tbody.appendChild(tr);
       });
-      tr.appendChild(td2);
 
-      var td3 = el("td");
-      var btn = el("button", "btn btn-sm btn-outline", "Apply");
-      btn.type = "button";
-      btn.addEventListener("click", function () { applyPreset(p); });
-      td3.appendChild(btn);
-      tr.appendChild(td3);
-      tbody.appendChild(tr);
+      var table = el("table", "tight");
+      var head = el("thead");
+      var hr = el("tr");
+      ["Name", "Description", "Options", ""].forEach(function (h) {
+        hr.appendChild(el("th", null, h));
+      });
+      head.appendChild(hr);
+      table.appendChild(head);
+      table.appendChild(tbody);
+
+      var scroll = el("div", "scroll");
+      scroll.appendChild(table);
+      host.appendChild(el("h4", null, kindLabel(kind)));
+      host.appendChild(scroll);
     });
 
     var missing = Object.keys(unapplied).sort();
@@ -1096,7 +1308,10 @@ table.tight td, table.tight th { padding: .4rem .5rem; font-size: .8rem; }
   })();
 
   function applyPreset(p) {
-    resetControls();
+    // A layout is a whole answer and replaces what is on the form; a theme is
+    // only shapes and colours and is meant to compose, so it merges on top of
+    // whatever layout is already set rather than wiping it.
+    if (presetKind(p) !== "theme") { resetControls(); }
     Object.keys(p.options || {}).forEach(function (k) {
       var c = controls[k];
       if (!c || c.el.disabled) { return; }
@@ -1110,6 +1325,218 @@ table.tight td, table.tight th { padding: .4rem .5rem; font-size: .8rem; }
   function syncPicker(name) {
     var text = $(name + "_text");
     if (/^#[0-9a-f]{6}$/i.test(text.value)) { $(name + "_color").value = text.value.toLowerCase(); }
+  }
+
+  /* -------------------------------------------------- theme gallery -----
+   * A theme is a look, and a look cannot be read off a row of hex codes, so
+   * each one is drawn for real: /v1/qr with that theme's own options and the
+   * data currently in the form, as SVG at a small scale.
+   *
+   * Thirty codes is thirty renders, so nothing is fetched until its card is
+   * near the viewport, and a card that scrolls away with a request still in
+   * flight has it aborted — a fast scroll through the grid should cost the
+   * service a handful of renders, not the whole set. Object URLs are revoked
+   * the moment the image has decoded; the bitmap survives, the blob does not,
+   * which is what keeps a session that retypes the data a hundred times from
+   * pinning a hundred blobs per card. */
+
+  var cards = [];          // one per theme, in gallery order
+  var observer = null;
+  var gallerySig = "";     // the content parameters the previews were drawn for
+
+  // The preview shows the caller's own data, but only the content half of the
+  // request: format, scale and every style control belong to the theme here,
+  // not to the form, or every card would render as the form already does.
+  function contentParams() {
+    var out = [];
+    paramList().forEach(function (p) {
+      if (p.k === "data" || p.k === "type" || p.k.indexOf("payload.") === 0) { out.push(p); }
+    });
+    // An empty form would render nothing at all; a placeholder keeps the
+    // gallery legible while someone is mid-edit.
+    if (!out.length) { out.push({ k: "data", v: "barqr", num: false }); }
+    return out;
+  }
+
+  function themeURL(p) {
+    var ps = contentParams();
+    Object.keys(p.options || {}).forEach(function (k) {
+      ps.push({ k: k, v: String(p.options[k]), num: false });
+    });
+    // SVG because it is exact at any size and costs no pixels; scale 4 is
+    // about 130px for a short payload, which is the size of a card.
+    ps.push({ k: "output.format", v: "svg", num: false });
+    ps.push({ k: "output.scale", v: "4", num: false });
+    return origin + "/v1/qr" + query(ps);
+  }
+
+  function abortCard(card) {
+    if (card.ctrl) { card.ctrl.abort(); }
+    card.ctrl = null;
+    card.loading = null;
+  }
+
+  function placeholder(card, text) {
+    clear(card.prev);
+    card.prev.appendChild(el("span", "ph muted", text));
+  }
+
+  function renderCard(card) {
+    var url = themeURL(card.preset);
+    if (card.shown === url || card.loading === url) { return; }
+    abortCard(card);
+    card.loading = url;
+
+    var ctrl = typeof AbortController === "function" ? new AbortController() : null;
+    card.ctrl = ctrl;
+
+    fetch(url, {
+      headers: headers({}),
+      cache: "no-store",
+      signal: ctrl ? ctrl.signal : undefined
+    }).then(function (res) {
+      if (!res.ok) { throw new Error("HTTP " + res.status); }
+      return res.blob();
+    }).then(function (blob) {
+      if (card.loading !== url) { return; }   // superseded while in flight
+      card.loading = null;
+      card.ctrl = null;
+
+      var href = URL.createObjectURL(blob);
+      var img = el("img");
+      img.alt = card.preset.name + " rendered with the current data";
+      img.onload = function () { URL.revokeObjectURL(href); };
+      img.onerror = function () {
+        URL.revokeObjectURL(href);
+        card.shown = null;
+        placeholder(card, "unavailable");
+      };
+      img.src = href;
+      clear(card.prev);
+      card.prev.appendChild(img);
+      card.shown = url;
+    }).catch(function (err) {
+      if (err && err.name === "AbortError") { return; }
+      if (card.loading !== url) { return; }
+      card.loading = null;
+      card.ctrl = null;
+      card.shown = null;
+      placeholder(card, "unavailable");
+    });
+  }
+
+  function buildCard(p, index) {
+    var node = el("div", "tcard");
+    node.setAttribute("data-card", String(index));
+
+    var prev = el("div", "tprev");
+    prev.appendChild(el("span", "ph muted", "…"));
+    node.appendChild(prev);
+
+    var head = el("div", "thead");
+    var sw = el("span", "swatch");
+    // The three colours are on the card before any request completes, so the
+    // palette is legible even on a slow link or when a render fails.
+    [["style.bg", "background"], ["style.fg", "modules"],
+     ["style.eye_fg", "finder accent"]].forEach(function (pair) {
+      var v = p.options && p.options[pair[0]];
+      if (!v) { return; }
+      var dot = el("i");
+      dot.style.background = String(v);
+      dot.title = pair[1] + " " + v;
+      sw.appendChild(dot);
+    });
+    head.appendChild(sw);
+    head.appendChild(el("code", null, p.name));
+    var mark = el("span", "badge", "applied");
+    mark.hidden = true;
+    head.appendChild(mark);
+    node.appendChild(head);
+
+    if (p.description) { node.appendChild(el("div", "tdesc", p.description)); }
+
+    var btn = el("button", "btn btn-sm btn-outline", "Apply");
+    btn.type = "button";
+    btn.addEventListener("click", function () { applyPreset(p); });
+    node.appendChild(btn);
+
+    return { preset: p, node: node, prev: prev, mark: mark,
+             ctrl: null, loading: null, shown: null, visible: false };
+  }
+
+  (function buildGallery() {
+    var themes = presetsOfKind("theme");
+    if (!themes.length) { return; }
+
+    var host = $("gallery");
+    themes.forEach(function (p, i) {
+      var card = buildCard(p, i);
+      cards.push(card);
+      host.appendChild(card.node);
+    });
+
+    $("gallerylead").textContent =
+      themes.length + " themes, each drawn with the data above. A theme sets shapes " +
+      "and the three colours and nothing else, so it composes with any layout, format " +
+      "or size. Previews render as they scroll into view.";
+    $("gallerysection").hidden = false;
+
+    if (typeof IntersectionObserver !== "function") {
+      // No observer: draw the lot rather than show thirty empty cards.
+      cards.forEach(function (c) { c.visible = true; renderCard(c); });
+      return;
+    }
+    observer = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        var i = Number(e.target.getAttribute("data-card"));
+        var card = cards[i];
+        if (!card) { return; }
+        card.visible = !!e.isIntersecting;
+        if (card.visible) { renderCard(card); } else { abortCard(card); }
+      });
+    }, { rootMargin: "250px" });
+    cards.forEach(function (c) { observer.observe(c.node); });
+  })();
+
+  // Called from run(), so the gallery inherits the page's one debounce rather
+  // than firing a second timer of its own. The signature check is what makes
+  // that safe: run() also fires for a scale drag or a format change, and
+  // neither of those changes a single preview.
+  function refreshGallery() {
+    if (!cards.length) { return; }
+    var sig = JSON.stringify(contentParams());
+    if (sig === gallerySig) { return; }
+    gallerySig = sig;
+    cards.forEach(function (c) {
+      abortCard(c);
+      c.shown = null;
+      // An off-screen card keeps its stale preview until it scrolls back in,
+      // at which point the observer redraws it against the new signature.
+      if (c.visible) { renderCard(c); }
+    });
+  }
+
+  // A theme is "applied" when every key it sets matches the control that
+  // drives that key — which is also true when a caller reached the same look
+  // by hand, and that is the honest answer.
+  function themeApplied(p) {
+    var keys = Object.keys(p.options || {});
+    if (!keys.length) { return false; }
+    for (var i = 0; i < keys.length; i++) {
+      var c = controls[keys[i]];
+      if (!c) { return false; }
+      var want = String(p.options[keys[i]]).trim().toLowerCase();
+      if (String(c.el.value).trim().toLowerCase() !== want) { return false; }
+    }
+    return true;
+  }
+
+  function markThemes() {
+    cards.forEach(function (c) {
+      var on = themeApplied(c.preset);
+      c.node.className = on ? "tcard on" : "tcard";
+      c.mark.hidden = !on;
+    });
   }
 
   (function buildTemplateTable() {
