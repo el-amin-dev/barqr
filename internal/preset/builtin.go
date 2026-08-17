@@ -16,7 +16,7 @@ package preset
 // which the request layer's reflective setter handles for each field's kind.
 var builtins = []Preset{
 	{
-		Name: "default",
+		Name: "default", Kind: KindLayout,
 		Description: "PNG at eight pixels per module with the specification's " +
 			"error correction — the shape of every other preset's starting point",
 		Options: map[string]any{
@@ -29,7 +29,7 @@ var builtins = []Preset{
 		},
 	},
 	{
-		Name: "print",
+		Name: "print", Kind: KindLayout,
 		Description: "300 dpi, sized in millimetres, highest error correction and a " +
 			"generous quiet zone — for artwork that goes to a press",
 		Options: map[string]any{
@@ -50,7 +50,7 @@ var builtins = []Preset{
 		},
 	},
 	{
-		Name:        "terminal",
+		Name: "terminal", Kind: KindLayout,
 		Description: "ANSI half-block output sized for an 80-column terminal",
 		Options: map[string]any{
 			"output.format": "ansi",
@@ -65,7 +65,7 @@ var builtins = []Preset{
 		},
 	},
 	{
-		Name: "web",
+		Name: "web", Kind: KindLayout,
 		Description: "small SVG for inline use in a page, where the vector scales " +
 			"and the bytes are the cost",
 		Options: map[string]any{
@@ -79,7 +79,7 @@ var builtins = []Preset{
 		},
 	},
 	{
-		Name: "ticket",
+		Name: "ticket", Kind: KindLayout,
 		Description: "boarding-pass and event-ticket stock: highest error correction " +
 			"at thermal-printer resolution; set style.caption to the reference",
 		Options: map[string]any{
@@ -102,7 +102,7 @@ var builtins = []Preset{
 		},
 	},
 	{
-		Name: "label",
+		Name: "label", Kind: KindLayout,
 		Description: "linear barcode on adhesive label stock: tall bars, " +
 			"human-readable line on, 1D quiet zone",
 		Options: map[string]any{
@@ -127,7 +127,7 @@ var builtins = []Preset{
 		},
 	},
 	{
-		Name: "dark",
+		Name: "dark", Kind: KindLayout,
 		Description: "light modules on a dark background for dark-mode interfaces; " +
 			"reversed polarity, so expect a scannability warning",
 		Options: map[string]any{
@@ -143,7 +143,7 @@ var builtins = []Preset{
 		},
 	},
 	{
-		Name: "sticker",
+		Name: "sticker", Kind: KindLayout,
 		Description: "rounded modules with dot eyeballs for die-cut stickers and " +
 			"merchandise, at the error correction that decoration costs",
 		Options: map[string]any{
@@ -166,8 +166,13 @@ var builtins = []Preset{
 // The returned Set is a fresh copy, so a caller that loads a directory over it
 // cannot mutate the built-ins seen by anything else.
 func Builtin() *Set {
-	presets := make([]Preset, 0, len(builtins))
+	presets := make([]Preset, 0, len(builtins)+len(themes))
 	for _, p := range builtins {
+		presets = append(presets, p.Clone())
+	}
+	// Themes come from themes.go and are a different kind of answer — see the
+	// note there on why the two sets are kept apart.
+	for _, p := range themes {
 		presets = append(presets, p.Clone())
 	}
 	return newSet(presets)

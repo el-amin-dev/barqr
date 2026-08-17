@@ -80,11 +80,28 @@ func ValidName(name string) bool { return slugPattern.MatchString(name) }
 type Preset struct {
 	// Name is the slug the caller asks for. It matches ValidName.
 	Name string `json:"name"`
+	// Kind separates a layout from a theme, so a caller — or the documentation
+	// UI — can offer them as the two different questions they answer: where is
+	// this code going, and what should it look like. Empty means layout.
+	Kind Kind `json:"kind,omitempty"`
 	// Description is one line of prose for /v1/presets listings.
 	Description string `json:"description,omitempty"`
 	// Options maps dot-notation option keys to values.
 	Options map[string]any `json:"options"`
 }
+
+// Kind distinguishes the two sorts of preset.
+type Kind string
+
+// Preset kinds.
+const (
+	// KindLayout sets format, resolution and error correction: it answers
+	// "where is this code going".
+	KindLayout Kind = "layout"
+	// KindTheme sets shapes and colours only, and nothing else, so it composes
+	// with any layout and any output format.
+	KindTheme Kind = "theme"
+)
 
 // Clone returns a copy whose Options map shares nothing with the receiver.
 //

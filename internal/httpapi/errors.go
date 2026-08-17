@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sort"
 
 	"github.com/el-amin-dev/barqr/internal/encoder"
 	"github.com/el-amin-dev/barqr/internal/render"
@@ -39,6 +40,29 @@ const (
 	CodeMethodNotAllowed = "METHOD_NOT_ALLOWED"
 	CodeInternal         = "INTERNAL"
 )
+
+// Codes is every error code this build can return, sorted.
+//
+// It exists so the catalogue in docs/API.md can be checked against the code
+// rather than against a second hand-maintained list — which would be the same
+// drift the documentation tests exist to prevent, one level up.
+//
+// A new code must be added here as well as declared above. That is deliberate
+// friction: a code is API surface, and adding one without documenting it
+// should cost something.
+func Codes() []string {
+	out := []string{
+		CodeBadRequest, CodeUnknownField, CodeInvalidValue, CodeMissingData,
+		CodeUnknownType, CodeInvalidPayload, CodeUnknownSymbology, CodeUnavailable,
+		CodeDataTooLong, CodeInvalidData, CodeUnsupported, CodeUnknownFormat,
+		CodeUnknownShape, CodeInvalidColor, CodeCanvasTooLarge, CodeUnscannable,
+		CodeBodyTooLarge, CodeUnauthorized, CodeRateLimited, CodeTimeout,
+		CodeOverloaded, CodeNotFound, CodeMethodNotAllowed, CodeInternal,
+		CodeFetchNotAllowed, CodeFetchBlocked,
+	}
+	sort.Strings(out)
+	return out
+}
 
 // Fault is the single error shape barqr returns, from every endpoint and every
 // layer. It is deliberately flat and self-describing: a caller should be able

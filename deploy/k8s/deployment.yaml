@@ -191,6 +191,14 @@ spec:
             - name: BARQR_DOCS
               value: "false"
 
+            # Already the default. Pinned explicitly because it is the SSRF
+            # surface and the default-deny egress in networkpolicy.yaml is
+            # written on the assumption that it stays off — the two are a pair,
+            # and an audit should be able to read the answer here rather than
+            # infer it from an absence.
+            - name: BARQR_ALLOW_REMOTE_FETCH
+              value: "false"
+
             # A Go runtime variable, not a barqr one: it tells the GC to keep
             # the heap under a soft ceiling below the cgroup limit, so pressure
             # turns into more GC rather than an OOMKill (the kernel gives Go no

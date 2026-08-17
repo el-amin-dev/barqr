@@ -5,6 +5,58 @@
 
 <!-- append ADRs below, newest first -->
 
+## ADR-014 — Documentation is checked against the code, not maintained beside it (2026-08-17)
+
+- status: accepted
+- context: every list in a README rots. The capability tables, the environment
+  reference, and the error catalogue are the three most-read parts of this
+  project's documentation and the three most likely to fall behind the binary,
+  because nothing fails when they do.
+- decision: two mechanisms, meeting in the middle. What the *service* serves —
+  `/v1/symbologies`, `/v1/openapi.json`, and every page of the browser
+  documentation — is generated from the same registries the router dispatches
+  on, so it cannot describe an endpoint or format this build does not have.
+  What is *written* — `README.md`, `docs/API.md`, `docs/DEPLOY.md`,
+  `docs/DOCKERHUB.md` — is parsed by `internal/doccheck` and asserted against
+  those registries, `config.Keys()`, and `httpapi.Codes()`. Adding a symbology
+  without listing it fails the build; documenting a variable the binary does
+  not read fails the build.
+- alternatives: generate the markdown too (a README wants prose and judgement,
+  not a dump); a review checklist (this is precisely what review forgets).
+- consequences: the counts in the README headline are load-bearing and a test
+  will tell you when they are wrong. The cost is that a deliberate wording
+  change to a table can fail the build, which is the intended trade.
+
+## ADR-013 — Three deliberate deviations from the project brief (2026-08-17)
+
+- status: accepted
+- context: the brief specifies a repository layout and a testing approach. Three
+  items were built differently, and an unexplained absence looks like an
+  oversight rather than a decision.
+- decision and reasoning:
+  - **`api/openapi.yaml` is not committed.** The document is generated at
+    request time from the live registries and served at `/v1/openapi.json`. A
+    committed snapshot would be a second source of truth that can disagree with
+    the running service, which is the failure the generation exists to prevent.
+    A release artefact can be produced from a running container when one is
+    genuinely needed.
+  - **No `testdata/golden` byte-exact fixtures.** The writers assert properties
+    of their output instead: the PDF writer parses its own xref table and checks
+    each offset lands on an object header, the SVG writer parses with
+    `encoding/xml`, the rasteriser compares every pixel against `Canvas.At`, and
+    several tests decode the rendered image back with `internal/decoder` to
+    prove it still scans. A golden file proves "unchanged"; these prove
+    "correct", and they do not have the failure mode where a regenerated blob
+    nobody looked at silently becomes the new truth.
+  - **`internal/dynamic` is not implemented.** It is M10 and explicitly
+    optional. `BARQR_DYNAMIC` parses and warns at boot that the module is
+    absent, rather than accepting the setting silently.
+- consequences: someone comparing the tree to the brief finds three gaps. They
+  are recorded here and in `.claude/PROGRESS.md` so the answer is one file away.
+  If a visual regression ever slips past the structural assertions, golden files
+  are the right response and this ADR should be superseded.
+
+
 ## ADR-012 — Decode guards run on the image header, before any pixel (2026-08-17)
 
 - status: accepted

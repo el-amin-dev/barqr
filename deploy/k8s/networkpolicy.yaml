@@ -83,8 +83,8 @@ spec:
   # outbound connections whatsoever. It does not call a database, a cache, a
   # queue, a licence server, or a telemetry endpoint, and it does not even need
   # DNS, since it resolves no names. Remote logo and background fetching is the
-  # one feature that would, and it is off (BARQR_ALLOW_REMOTE_FETCH=false, the
-  # default and the only setting this build honours).
+  # one feature that would, and it is off: BARQR_ALLOW_REMOTE_FETCH defaults to
+  # false and deployment.yaml does not turn it on.
   #
   # That makes this rule cheap and valuable: it is the control that turns an
   # SSRF or a supply-chain foothold in the renderer into a dead end, because
@@ -92,7 +92,10 @@ spec:
   #
   # If you ever enable remote fetch, this must open up — and only this far:
   # DNS to the cluster resolver, and HTTPS to the hosts in
-  # BARQR_FETCH_ALLOWLIST. Never `to: [{}]`.
+  # BARQR_FETCH_ALLOWLIST. Never `to: [{}]`. Note that the egress has to be
+  # direct: barqr ignores HTTPS_PROXY on purpose, because it resolves a host,
+  # vets the address, and then dials that address — a proxy would void the pin
+  # and reopen the DNS-rebinding window.
   #
   # egress:
   #   - to:

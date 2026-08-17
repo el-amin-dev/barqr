@@ -108,6 +108,12 @@ services:
       # a temporary loopback port publish.
       BARQR_DOCS: "false"
 
+      # Already the default. Pinned explicitly because it is the SSRF surface
+      # and the `internal: true` network below assumes it stays off — the two
+      # are a pair, and an audit should read the answer here rather than infer
+      # it from an absence.
+      BARQR_ALLOW_REMOTE_FETCH: "false"
+
     # The distroless image already declares USER 65532:65532; repeating it here
     # means a `docker compose run --user root` or a future base-image change
     # cannot quietly hand this process root.
@@ -163,9 +169,11 @@ networks:
   # to each other and to nothing else. That is the Compose equivalent of the
   # default-deny egress NetworkPolicy in deploy/k8s/networkpolicy.yaml, and it
   # is accurate — barqr makes no outbound connections at all while
-  # BARQR_ALLOW_REMOTE_FETCH is false, which is the default and the only
-  # supported setting in this build. It also means a compromised renderer has
-  # nowhere to call home to.
+  # BARQR_ALLOW_REMOTE_FETCH is false, which is the default and is what this
+  # stack runs. It also means a compromised renderer has nowhere to call home
+  # to. Turning remote fetch on means moving barqr to a routable network, at
+  # which point the allowlist is the only thing left between it and the
+  # internet.
   barqr:
     internal: true
 

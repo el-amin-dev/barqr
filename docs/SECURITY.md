@@ -106,6 +106,10 @@ deny-by-default and layered, all in `internal/fetch`: ✅
 | `BARQR_FETCH_TIMEOUT` | a host that answers slowly is a denial-of-service amplifier |
 | Sniffed content type must be `image/*` | regardless of what the server claimed |
 
+No proxy is honoured: `HTTPS_PROXY` is deliberately ignored, because routing
+through a proxy would void the resolve-then-dial address pin. The **sniffed**
+content type — not the one the server claimed — is what reaches the renderer.
+
 Errors returned to the caller never carry the underlying network error or the
 resolved address — that address is precisely what these guards exist to keep
 from them.

@@ -62,8 +62,13 @@ Two rules:
 |---|---|---|
 | `BARQR_ALLOW_REMOTE_FETCH` | `false` | Lets `style.logo` name an `https` URL. This is the SSRF surface — leave it off unless you need it. |
 | `BARQR_FETCH_ALLOWLIST` | *(empty)* | Comma-separated hosts, matched exactly. Empty means **nothing** is fetchable, so enabling the feature without setting this warns at boot. |
-| `BARQR_FETCH_TIMEOUT` | `3s` | |
-| `BARQR_FETCH_MAX_BYTES` | `2MB` | |
+| `BARQR_FETCH_TIMEOUT` | `3s` | Bounds the whole fetch. |
+| `BARQR_FETCH_MAX_BYTES` | `2MB` | Checked against `Content-Length` and again while reading. |
+
+> **Egress must be direct.** `HTTPS_PROXY` is deliberately ignored: barqr
+> resolves the host, vets every address, and dials the vetted address, and a
+> proxy would void that pin. If your egress goes through a proxy, allow direct
+> egress to the allowlisted hosts instead, or remote logos will simply fail.
 
 ### Observability and behaviour
 

@@ -24,6 +24,7 @@ import (
 	"github.com/el-amin-dev/barqr/internal/builder"
 	"github.com/el-amin-dev/barqr/internal/config"
 	"github.com/el-amin-dev/barqr/internal/encoder"
+	"github.com/el-amin-dev/barqr/internal/httpapi"
 	"github.com/el-amin-dev/barqr/internal/render"
 	"github.com/el-amin-dev/barqr/internal/writer"
 )
@@ -304,23 +305,18 @@ func TestAPIDocumentsEveryEndpoint(t *testing.T) {
 	}
 }
 
-// TestAPIDocumentsEveryErrorCode keeps the error catalogue honest. A client
-// switches on these, so one that exists in code but not in the docs is a
-// contract nobody can program against.
+// TestAPIDocumentsEveryErrorCode keeps the error catalogue honest.
+//
+// A client switches on these, so a code that exists in the binary but not in
+// the reference is a contract nobody can program against. The list comes from
+// httpapi.Codes rather than being repeated here — a second hand-kept list
+// would be exactly the drift these tests exist to prevent.
 func TestAPIDocumentsEveryErrorCode(t *testing.T) {
 	t.Parallel()
 
 	doc := read(t, "docs/API.md")
 
-	for _, code := range []string{
-		"BAD_REQUEST", "UNKNOWN_FIELD", "INVALID_VALUE", "MISSING_DATA",
-		"UNKNOWN_TYPE", "INVALID_PAYLOAD", "UNKNOWN_SYMBOLOGY",
-		"SYMBOLOGY_UNAVAILABLE", "DATA_TOO_LONG", "INVALID_DATA",
-		"UNSUPPORTED_OPTION", "UNKNOWN_FORMAT", "UNKNOWN_SHAPE",
-		"INVALID_COLOR", "CANVAS_TOO_LARGE", "UNSCANNABLE", "BODY_TOO_LARGE",
-		"UNAUTHORIZED", "RATE_LIMITED", "TIMEOUT", "OVERLOADED", "NOT_FOUND",
-		"METHOD_NOT_ALLOWED", "INTERNAL",
-	} {
+	for _, code := range httpapi.Codes() {
 		if !strings.Contains(doc, code) {
 			t.Errorf("docs/API.md does not document the error code %s", code)
 		}

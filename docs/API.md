@@ -114,6 +114,29 @@ guessing wrong produces a perfectly valid code containing the wrong thing.
 Colours accept `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`, or a name
 (`black` `white` `transparent` `red` `green` `blue` `yellow` `cyan` `magenta` `gray`).
 
+### Remote logos
+
+With `BARQR_ALLOW_REMOTE_FETCH=true` and the host named in
+`BARQR_FETCH_ALLOWLIST`, `style.logo` may be an `https` URL. The guards in
+[`SECURITY.md`](SECURITY.md#layer-4--egress-and-ssrf) decide what happens:
+
+| Status | Code | When |
+|---|---|---|
+| `501` | `UNSUPPORTED_OPTION` | remote fetching is off; only `data:` URIs are accepted |
+| `403` | `FETCH_NOT_ALLOWED` | the host is not on the allowlist, or the allowlist is empty |
+| `403` | `FETCH_BLOCKED` | the host resolved to a private, loopback, or otherwise internal address |
+| `413` | `BODY_TOO_LARGE` | over `BARQR_FETCH_MAX_BYTES` |
+| `504` | `TIMEOUT` | over `BARQR_FETCH_TIMEOUT` |
+| `400` | `INVALID_VALUE` | not `https`, not an image, unresolvable, redirected, or a non-2xx response |
+
+The response never names the address barqr resolved or dialled, or the
+upstream status — those are precisely what the guards exist to keep from the
+caller. The detail is in the server log against the request id.
+
+**No proxy is honoured.** `HTTPS_PROXY` is deliberately ignored, because a
+proxy would void the resolve-then-dial address pin. An operator routing egress
+through a proxy must allow direct egress to the allowlisted hosts instead.
+
 > **Semicolons in a query string.** A bare `;` is not a parameter separator, and
 > Go's parser stops there. `?style.logo=data:image/png;base64,…` would lose that
 > parameter and every one after it, so barqr rejects the request with a `400`
@@ -600,7 +623,9 @@ rewording an error can never break a client.
 `INVALID_DATA` · `UNSUPPORTED_OPTION` · `UNKNOWN_FORMAT` · `UNKNOWN_SHAPE` ·
 `INVALID_COLOR` · `CANVAS_TOO_LARGE` · `UNSCANNABLE` · `BODY_TOO_LARGE` ·
 `UNAUTHORIZED` · `RATE_LIMITED` · `TIMEOUT` · `OVERLOADED` · `NOT_FOUND` ·
-`METHOD_NOT_ALLOWED` · `INTERNAL`
+`METHOD_NOT_ALLOWED` · `FETCH_NOT_ALLOWED` · `FETCH_BLOCKED` · `INTERNAL`
+
+This list is checked against the binary by a test, so it cannot fall behind.
 
 A response never contains a stack trace, a file path, an environment value, an
 internal type name, or a pointer. That is asserted by a test, not a convention.
