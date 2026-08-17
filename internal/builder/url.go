@@ -32,6 +32,12 @@ var urlSafeSchemes = map[string]bool{
 }
 
 // urlBuilder normalises and validates a link.
+//
+// One asymmetry is deliberate: with allow_any set, Build will emit a link in
+// any scheme, but Parse never claims one outside the safe set. Parse is what
+// classifies a scanned code, and guessing that an unfamiliar scheme is a link
+// worth opening is exactly the behaviour the safe-scheme list exists to
+// prevent. The round-trip guarantee therefore covers the safe schemes only.
 type urlBuilder struct{}
 
 func (urlBuilder) Name() string { return URL }

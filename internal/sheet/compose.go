@@ -254,22 +254,27 @@ func pageContent(cells []Cell, refs []int, images []cellImage, l Layout) ([]byte
 			break
 		}
 
-		band := 0.0
+		// A caption costs the code its band plus the gap that keeps the
+		// descenders off the quiet zone; with no caption the code gets the
+		// whole cell.
+		reserve := 0.0
 		caption := ""
 		if l.LabelCaption && cell.Caption != "" {
-			band = captionBandMM
 			caption = winAnsi(cell.Caption)
+			if caption != "" {
+				reserve = captionBandMM + captionPadMM
+			}
 		}
 
 		if ref := refs[i]; ref >= 0 {
-			drawImage(&b, l.Page, images[ref], ref, x, y, w, h-band-captionPadMM)
+			drawImage(&b, l.Page, images[ref], ref, x, y, w, h-reserve)
 			if !seen[ref] {
 				seen[ref] = true
 				used = append(used, ref)
 			}
 		}
 		if caption != "" {
-			drawCaption(&b, l.Page, caption, x, y+h-band, w)
+			drawCaption(&b, l.Page, caption, x, y+h-captionBandMM, w)
 		}
 	}
 
@@ -434,6 +439,9 @@ func winAnsi(s string) string {
 		case r < 0x20 || r == 0x7F:
 			// Control characters have no glyph and can confuse a parser.
 			continue
+		case r < 0x7F:
+			// Printable ASCII, which is what a caption almost always is.
+			b.WriteByte(byte(r))
 		case r >= 0xA0 && r <= 0xFF:
 			// WinAnsi agrees with Latin-1 from 0xA0 up, so accented Latin
 			// captions pass through unchanged.

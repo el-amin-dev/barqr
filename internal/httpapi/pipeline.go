@@ -147,6 +147,9 @@ func (s *Server) style(req Request) (render.Style, error) {
 	if req.Encode.QuietZone != nil {
 		st.QuietZone = *req.Encode.QuietZone
 	}
+	// The renderer needs the resolved level to judge whether a logo fits the
+	// error-correction budget; encoder.Matrix does not carry it.
+	st.ECC = s.encodeOpts(req).ECC
 	st.BarHeight = req.Style.BarHeight
 	if req.Style.HRI != nil {
 		st.HRI = *req.Style.HRI

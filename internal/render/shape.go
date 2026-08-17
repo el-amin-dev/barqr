@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"image"
 	"image/color"
-	"image/draw"
 	"strings"
 )
 
@@ -115,10 +114,25 @@ func (squareEye) RasterBall(dst *image.NRGBA, r image.Rectangle, c color.NRGBA) 
 // fill paints a solid rectangle. A zero-alpha colour clears to transparent
 // rather than compositing, which is what the hollow centre of an eye frame
 // needs.
+//
+// It writes bytes directly rather than going through image/draw: this runs
+// once per dark module, and at ten pixels square the per-call setup in
+// draw.Draw costs more than the fill. The first row is built once and copied
+// down, which lets the runtime use its vectorised copy.
 func fill(dst *image.NRGBA, r image.Rectangle, c color.NRGBA) {
 	r = r.Intersect(dst.Bounds())
 	if r.Empty() {
 		return
 	}
-	draw.Draw(dst, r, &image.Uniform{C: c}, image.Point{}, draw.Src)
+
+	start := dst.PixOffset(r.Min.X, r.Min.Y)
+	width := r.Dx() * 4
+	row := dst.Pix[start : start+width : start+width]
+	for i := 0; i < width; i += 4 {
+		row[i], row[i+1], row[i+2], row[i+3] = c.R, c.G, c.B, c.A
+	}
+	for y := r.Min.Y + 1; y < r.Max.Y; y++ {
+		off := dst.PixOffset(r.Min.X, y)
+		copy(dst.Pix[off:off+width], row)
+	}
 }

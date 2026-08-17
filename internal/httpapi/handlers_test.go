@@ -917,7 +917,11 @@ func TestServeLifecycle(t *testing.T) {
 }
 
 func BenchmarkQREndpoint(b *testing.B) {
-	cfg, _, err := config.Load([]string{"BARQR_AUTH_MODE=open", "BARQR_METRICS=false"})
+	// Rate limiting and metrics measure the middleware, not the render path,
+	// and a benchmark loop trips the limiter within a second.
+	cfg, _, err := config.Load([]string{
+		"BARQR_AUTH_MODE=open", "BARQR_METRICS=false", "BARQR_RATE_LIMIT=0/min",
+	})
 	if err != nil {
 		b.Fatal(err)
 	}

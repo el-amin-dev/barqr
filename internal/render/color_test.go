@@ -97,11 +97,11 @@ func TestLuminanceCompositesAlphaOverWhite(t *testing.T) {
 	t.Parallel()
 
 	opaque := color.NRGBA{A: 0xFF}
-	clear := color.NRGBA{}
+	transparent := color.NRGBA{}
 
 	// A fully transparent colour is judged as the white it will appear over,
 	// which is what makes the transparent-background warning meaningful.
-	if got := render.Luminance(clear); math.Abs(got-1) > 0.001 {
+	if got := render.Luminance(transparent); math.Abs(got-1) > 0.001 {
 		t.Errorf("Luminance(transparent) = %.3f, want 1 (white)", got)
 	}
 	if got := render.Luminance(opaque); got > 0.001 {

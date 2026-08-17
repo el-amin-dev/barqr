@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"image"
 	"image/color"
-	"image/draw"
 
 	"github.com/el-amin-dev/barqr/internal/render"
 )
@@ -33,6 +32,11 @@ const (
 // leave a hole through an opaque background and would make a translucent
 // module blend with nothing. Compositing once makes both cases correct without
 // the rasteriser knowing the shape of any particular hole.
+//
+// The background is a single flat colour, so the composite happens in place
+// against that colour rather than into a second image. It saves a full-image
+// allocation and a copy on every render, which on a default QR is most of the
+// rasteriser's cost.
 func Rasterize(c render.Canvas, o OutputOpts) (*image.NRGBA, error) {
 	w, h, scale, err := PixelSize(c, o)
 	if err != nil {
@@ -97,10 +101,57 @@ func Rasterize(c render.Canvas, o OutputOpts) (*image.NRGBA, error) {
 		drawHRI(ink, text, c.Style.FG)
 	}
 
-	dst := image.NewNRGBA(bounds)
-	draw.Draw(dst, bounds, &image.Uniform{C: c.Style.BG}, image.Point{}, draw.Src)
-	draw.Draw(dst, bounds, ink, bounds.Min, draw.Over)
-	return dst, nil
+	compositeOverUniform(ink, c.Style.BG)
+	return ink, nil
+}
+
+// compositeOverUniform composites the ink layer over a flat background colour,
+// in place.
+//
+// image/draw has no fast path for NRGBA over NRGBA, so its generic loop is
+// several times slower than this one — and compositing against a uniform needs
+// no second image at all. The two common pixels, fully inked and fully clear,
+// are branches rather than arithmetic because a code is overwhelmingly made of
+// them: only anti-aliased shape edges reach the blend.
+func compositeOverUniform(dst *image.NRGBA, bg color.NRGBA) {
+	if bg.A == 0 {
+		return // nothing to composite against; the ink layer is the result
+	}
+	opaqueBG := bg.A == 0xFF
+
+	for i := 0; i < len(dst.Pix); i += 4 {
+		p := dst.Pix[i : i+4 : i+4]
+
+		switch p[3] {
+		case 0xFF:
+			continue // the ink already covers this pixel completely
+		case 0x00:
+			p[0], p[1], p[2], p[3] = bg.R, bg.G, bg.B, bg.A
+			continue
+		}
+
+		a := uint32(p[3])
+		inv := 255 - a
+
+		if opaqueBG {
+			// Source-over onto an opaque backdrop: the result is opaque, so
+			// the alpha divisions cancel out.
+			p[0] = uint8((uint32(p[0])*a + uint32(bg.R)*inv + 127) / 255)
+			p[1] = uint8((uint32(p[1])*a + uint32(bg.G)*inv + 127) / 255)
+			p[2] = uint8((uint32(p[2])*a + uint32(bg.B)*inv + 127) / 255)
+			p[3] = 0xFF
+			continue
+		}
+
+		// General non-premultiplied source-over. outA is never zero here:
+		// the fully clear case was handled above.
+		ba := uint32(bg.A)
+		outA := a*255 + ba*inv
+		p[0] = uint8((uint32(p[0])*a*255 + uint32(bg.R)*ba*inv) / outA)
+		p[1] = uint8((uint32(p[1])*a*255 + uint32(bg.G)*ba*inv) / outA)
+		p[2] = uint8((uint32(p[2])*a*255 + uint32(bg.B)*ba*inv) / outA)
+		p[3] = uint8((outA + 127) / 255)
+	}
 }
 
 // moduleRect converts a module-space rectangle into pixels.
@@ -110,12 +161,26 @@ func moduleRect(x, y, cols, rows, scale int) image.Rectangle {
 
 // fillRect paints a solid rectangle, clipped to the image. A zero-alpha colour
 // clears rather than composites, which is what the ink layer wants.
+//
+// This runs once per module, so it writes bytes directly: at ten pixels square
+// image/draw's per-call setup costs more than the fill itself. The first row is
+// built once and copied down, which lets the runtime use its vectorised copy.
 func fillRect(dst *image.NRGBA, r image.Rectangle, c color.NRGBA) {
 	r = r.Intersect(dst.Bounds())
 	if r.Empty() {
 		return
 	}
-	draw.Draw(dst, r, &image.Uniform{C: c}, image.Point{}, draw.Src)
+
+	start := dst.PixOffset(r.Min.X, r.Min.Y)
+	width := r.Dx() * 4
+	row := dst.Pix[start : start+width : start+width]
+	for i := 0; i < width; i += 4 {
+		row[i], row[i+1], row[i+2], row[i+3] = c.R, c.G, c.B, c.A
+	}
+	for y := r.Min.Y + 1; y < r.Max.Y; y++ {
+		off := dst.PixOffset(r.Min.X, y)
+		copy(dst.Pix[off:off+width], row)
+	}
 }
 
 // findEyes returns the top-left module of every finder pattern.
@@ -188,7 +253,10 @@ func layoutHRI(c render.Canvas, w, h, scale int) (hriBand, bool) {
 	// One font pixel of clearance is too tight at large scales and half a
 	// module is too much at small ones, so take whichever is larger.
 	pad := max(band.pixel, scale/2)
-	barsBottom := (c.Rows - c.QuietZone) * scale
+	// SymbolRect is where the bars actually are. Deriving the baseline from
+	// Rows minus the quiet zone would be wrong the moment a frame or a caption
+	// band grows the canvas, and would drop the text on top of the frame.
+	barsBottom := c.SymbolRect().Max.Y * scale
 	needed := pad + fontRows*band.pixel + pad
 
 	band.x = (w - tw) / 2
