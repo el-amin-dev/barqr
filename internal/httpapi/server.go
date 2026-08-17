@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/el-amin-dev/barqr/internal/config"
+	"github.com/el-amin-dev/barqr/internal/preset"
 )
 
 // writeTimeoutMargin is added to the configured request timeout when setting
@@ -23,15 +24,28 @@ import (
 // middleware still has room to write its error response.
 const writeTimeoutMargin = 5 * time.Second
 
+// limiterSweepInterval is how often idle rate-limit buckets are reclaimed.
+const limiterSweepInterval = time.Minute
+
 // Server is the barqr HTTP service.
 //
 // A Server is created by New, its routes are fixed at construction, and it is
-// driven by Run. It holds no state beyond readiness, in keeping with the
-// stateless process model.
+// driven by Run. Beyond readiness and the rate-limiter's buckets it holds no
+// state, in keeping with the stateless process model.
 type Server struct {
 	cfg  *config.Config
 	log  *slog.Logger
 	http *http.Server
+
+	// sem bounds concurrent request handling.
+	sem chan struct{}
+	// limiter holds the per-key token buckets.
+	limiter *limiter
+	// metrics is nil when BARQR_METRICS is false.
+	metrics *metrics
+	// presets is resolved once at boot: the built-ins, overlaid with whatever
+	// BARQR_PRESETS_PATH contains. It is read-only afterwards.
+	presets *preset.Set
 
 	// ready reports whether the process is willing to receive traffic. It is
 	// false before Serve starts and again as soon as shutdown begins, which
@@ -41,7 +55,35 @@ type Server struct {
 
 // New builds a Server from an already validated configuration.
 func New(cfg *config.Config, log *slog.Logger) *Server {
-	s := &Server{cfg: cfg, log: log}
+	s := &Server{
+		cfg:     cfg,
+		log:     log,
+		sem:     make(chan struct{}, cfg.Concurrency),
+		limiter: newLimiter(cfg.RateLimit),
+	}
+	if cfg.Metrics {
+		s.metrics = newMetrics()
+	}
+
+	// A bad preset file must not stop the service booting: barqr renders codes
+	// with or without them, so a malformed file is a warning and that preset is
+	// simply absent.
+	s.presets = preset.Builtin()
+	if cfg.PresetsPath != "" {
+		set, warns, err := preset.Load(cfg.PresetsPath)
+		switch {
+		case err != nil:
+			log.Error("presets could not be loaded; using the built-ins only",
+				slog.String("path", cfg.PresetsPath),
+				slog.String("error", err.Error()))
+		default:
+			s.presets = set
+			for _, w := range warns {
+				log.Warn("preset ignored", slog.String("detail", w))
+			}
+		}
+	}
+
 	s.http = &http.Server{
 		Handler:           s.routes(),
 		ReadHeaderTimeout: 5 * time.Second,
@@ -84,7 +126,23 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 	s.log.Info("listening",
 		slog.String("addr", ln.Addr().String()),
 		slog.String("auth_mode", string(s.cfg.AuthMode)),
-		slog.Int("api_keys", s.cfg.APIKeyCount()))
+		slog.Int("api_keys", s.cfg.APIKeyCount()),
+		slog.Int("concurrency", s.cfg.Concurrency),
+		slog.String("rate_limit", s.cfg.RateLimit.String()),
+		slog.Int("presets", s.presets.Len()))
+
+	sweeper := time.NewTicker(limiterSweepInterval)
+	defer sweeper.Stop()
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-sweeper.C:
+				s.limiter.sweep()
+			}
+		}
+	}()
 
 	serveErr := make(chan error, 1)
 	go func() {

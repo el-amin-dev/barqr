@@ -11,25 +11,93 @@ import (
 	"github.com/el-amin-dev/barqr/internal/version"
 )
 
-// routes builds the router. Every route lives under /v1 so that a future
-// /v2 can coexist without breaking clients, and the operational endpoints
-// are versioned along with everything else for consistency.
+// routes builds the router.
 //
-// The middleware stack is deliberately minimal here: recovery is a backstop
-// against a panic escaping a handler, not a strategy. The full stack — request
-// id, logging, metrics, auth, rate limiting, body limits, timeouts, CORS, and
-// caching — is layered on in the request-layer milestone.
+// Every route lives under /v1 so a future /v2 can coexist without breaking
+// clients. The middleware order matters and is chosen deliberately:
+//
+//	recover     a panic must never take the process down
+//	requestID   everything below it logs and reports the same id
+//	metrics     measures the whole stack, including rejections
+//	logging     one record per request, whatever the outcome
+//	cors        preflights are answered before auth, since a browser
+//	            preflight carries no credentials by design
+//	bodyLimit   cap the body before anything reads it
+//	auth        reject unauthenticated callers before spending work
+//	rateLimit   buckets by authenticated key, so it runs after auth
+//	timeout     bound the handler
+//	concurrency queue behind the semaphore, respecting that deadline
+//
+// The operational endpoints sit outside auth: a liveness probe cannot be
+// expected to hold an API key, and they disclose nothing sensitive.
 func (s *Server) routes() http.Handler {
 	r := chi.NewRouter()
+
 	r.Use(middleware.Recoverer)
+	r.Use(withRequestID)
+	r.Use(s.withMetrics)
+	r.Use(s.withLogging)
+	r.Use(s.withCORS)
+
+	r.NotFound(s.handleNotFound)
+	r.MethodNotAllowed(s.handleMethodNotAllowed)
 
 	r.Route("/v1", func(r chi.Router) {
+		// Unauthenticated: probes and build identity.
 		r.Get("/healthz", s.handleHealthz)
 		r.Get("/readyz", s.handleReadyz)
 		r.Get("/version", s.handleVersion)
+
+		// Authenticated: everything that does work.
+		r.Group(func(r chi.Router) {
+			r.Use(s.withBodyLimit)
+			r.Use(s.withAuth)
+			r.Use(s.withRateLimit)
+			r.Use(s.withTimeout)
+			r.Use(s.withConcurrency)
+
+			r.Get("/symbologies", s.handleSymbologies)
+			r.Get("/openapi.json", s.handleOpenAPI)
+
+			r.Get("/qr", s.handleQR)
+			r.Post("/qr", s.handleQR)
+
+			r.Get("/barcode/{symbology}", s.handleBarcode)
+			r.Post("/barcode/{symbology}", s.handleBarcode)
+
+			r.Get("/build/{type}", s.handleBuild)
+			r.Post("/build/{type}", s.handleBuild)
+
+			r.Post("/validate", s.handleValidate)
+			r.Post("/decode", s.handleDecode)
+			r.Post("/batch", s.handleBatch)
+
+			r.Post("/sheet", s.handleSheet)
+			r.Get("/sheet/templates", s.handleSheetTemplates)
+
+			r.Get("/preset", s.handlePresetList)
+			r.Get("/preset/{name}", s.handlePreset)
+			r.Post("/preset/{name}", s.handlePreset)
+		})
 	})
 
+	if s.metrics != nil {
+		r.Handle("/metrics", s.metrics.handler())
+	}
+
 	return r
+}
+
+// routePattern is the chi route template for a request, used as a metrics
+// label. Falling back to "other" keeps an unmatched path from creating a new
+// time series per URL.
+func routePattern(r *http.Request) string {
+	if rc := chi.RouteContext(r.Context()); rc != nil {
+		if p := rc.RoutePattern(); p != "" {
+			return p
+		}
+	}
+	return "other"
 }
 
 // handleHealthz reports process liveness. It answers 200 for as long as the
@@ -53,6 +121,20 @@ func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
 // handleVersion reports the build identity of the running binary.
 func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, r, http.StatusOK, version.Get())
+}
+
+// handleNotFound answers an unrouted path in the standard error shape, so a
+// client parsing errors never has to handle chi's plain-text default.
+func (s *Server) handleNotFound(w http.ResponseWriter, r *http.Request) {
+	f := newFault(http.StatusNotFound, CodeNotFound, "no such endpoint: %s", r.URL.Path)
+	f.Hint = "see /v1/openapi.json for the available endpoints"
+	s.fail(w, r, f)
+}
+
+// handleMethodNotAllowed answers a wrong method in the standard error shape.
+func (s *Server) handleMethodNotAllowed(w http.ResponseWriter, r *http.Request) {
+	s.fail(w, r, newFault(http.StatusMethodNotAllowed, CodeMethodNotAllowed,
+		"%s is not allowed on %s", r.Method, r.URL.Path))
 }
 
 // writeJSON serialises v as the response body.

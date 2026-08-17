@@ -12,57 +12,89 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Image](https://img.shields.io/badge/image-9.3%20MB-brightgreen)](Dockerfile)
 
+**15 symbologies · 17 payload builders · 12 output formats · 4 ms per code**
+
 </div>
-
----
-
-> **Project status — milestone M0 of 10 shipped.**
-> The service skeleton, configuration layer, security gate, container image, and CI
-> pipeline are live and tested. Code *rendering* (`/v1/qr`) lands in M1.
-> See the [roadmap](#roadmap) for exactly what exists today.
 
 ---
 
 ## Quickstart
 
 ```bash
-make docker-build                                                    # 9.3 MB image
-docker run --rm -p 3000:3000 -e BARQR_BIND=0.0.0.0 -e BARQR_API_KEYS=dev-key barqr:dev
-curl -s localhost:3000/v1/version | jq
+docker run --rm -p 3000:3000 -e BARQR_BIND=0.0.0.0 -e BARQR_API_KEYS=dev-key \
+  ghcr.io/el-amin-dev/barqr:latest
+curl -H 'X-API-Key: dev-key' 'localhost:3000/v1/qr?data=https://barqr.dev' -o qr.png
 ```
 
-```json
-{
-  "version": "dev",
-  "commit": "a530461",
-  "date": "2026-08-17T10:55:21Z",
-  "go": "go1.26.6",
-  "platform": "linux/amd64",
-  "name": "barqr"
-}
+That is the whole integration. Every option is a query parameter, so a barqr URL
+*is* the image — paste one into an `<img src>` and you are done.
+
+### See it without leaving the terminal
+
+```bash
+curl -H 'X-API-Key: dev-key' \
+  'localhost:3000/v1/qr?data=https://barqr.dev&output.format=unicode'
 ```
 
-No Go toolchain installed? `make` runs the compiler, linter, and tests in containers
-automatically. A fresh clone needs nothing but Docker.
+```
+                             
+  █▀▀▀▀▀█  █▄█ █▄█  █▀▀▀▀▀█  
+  █ ███ █ █▀▄▄█▀▄▄█ █ ███ █  
+  █ ▀▀▀ █ █▄  █  ▄█ █ ▀▀▀ █  
+  ▀▀▀▀▀▀▀ █ █ ▀ █▄█ ▀▀▀▀▀▀▀  
+  █ █▀█▀▀▄  ██▀▄▄▀▄ ▀█▀▀▀▄   
+    ██▀ ▀▀█ ▀ ██▀█▄▄█ ▀▀ ▀█  
+  ▄▄▄▄▀█▀▄▀▄▀ ▀ ▀▀▄█▀▄▀▄▀█▀  
+  █ ▄███▀ ▀▀ █▀ ▄▀▄ ▀██▀ ▀█  
+  ▀ ▀▀  ▀ █ █▀▄▄▄▄█▀▀▀█▄▀    
+  █▀▀▀▀▀█ ▄▀  ▄█▀▄█ ▀ █▄▀██  
+  █ ███ █ █▀█ ▀ ▀████▀█▄█▄█  
+  █ ▀▀▀ █ ▀█▀█▀ ▄▀▄▀▄▄▄█▀ █  
+  ▀▀▀▀▀▀▀ ▀ ▀▀     ▀▀▀▀▀▀▀▀  
+                             
+```
+
+That is real output, not a mock-up. `ascii`, `unicode`, and `ansi` are first-class
+formats, not afterthoughts: a headless operator must be able to *see* a code — and
+scan it off the screen — without a browser. `ansi` paints true-colour cells and
+honours `style.fg`/`style.bg`.
+
+No Go toolchain installed? `make` runs the compiler, linter, and tests in pinned
+containers automatically. A fresh clone needs nothing but Docker.
 
 ## Why barqr
 
 Every project eventually needs a QR code, and every project solves it differently:
-a JavaScript library in the frontend, a Python script in a cron job, a paid API with a
-rate limit and a privacy policy. barqr replaces all three with one endpoint.
+a JavaScript library in the frontend, a Python script in a cron job, a paid API with
+a rate limit and a privacy policy. barqr replaces all three with one endpoint.
 
 |  | |
 |---|---|
-| **Ultra fast** | Pure Go, no CGO, no subprocess, no disk I/O. Boot in under 100 ms. |
+| **Fast** | 4 ms for a PNG end to end, 2 µs to render, boot under 100 ms. Pure Go, no CGO, no subprocess, no disk I/O. |
 | **Stateless** | No database, no session, no local writes. Any replica answers any request. |
 | **Scales flat** | Add replicas. Concurrency is bounded per process by a semaphore, so a burst queues instead of thrashing. |
+| **Cacheable** | `GET` is pure and carries a strong `ETag`. Any proxy or CDN in front turns repeat renders into `304`s. |
 | **Drop-in microservice** | One container, one port, env-only config. Fits a compose file, a Nomad job, or a k8s Deployment without adapters. |
-| **curl-first** | Every option is reachable as a query param *or* a JSON body field. Paste a URL into an `<img src>` and you are done. |
-| **Deny by default** | Binds loopback, demands an API key, refuses to boot if that combination would expose it. |
-| **Small** | 9.3 MB distroless image, no shell, no package manager, unprivileged user, read-only rootfs. |
+| **curl-first** | Every option reachable as a query param *or* a JSON body field *or* a multipart form field — one decoder, three transports. |
+| **Deny by default** | Binds loopback, demands an API key, and refuses to boot if that combination would expose it. |
+| **Small** | 9.3 MB distroless image: no shell, no package manager, unprivileged user, read-only rootfs. |
 
 Non-goals, on purpose: no web UI, no accounts, no billing, no image editing, no
 "AI" anything. It renders codes.
+
+### What it does
+
+| | |
+|---|---|
+| **2D** | `qr` · `datamatrix` · `aztec` · `pdf417` |
+| **1D** | `code128` · `code39` · `code93` · `codabar` · `ean13` · `ean8` · `upca` · `upce` · `itf` · `itf14` · `2of5` |
+| **Payloads** | `url` · `wifi` · `vcard` · `mecard` · `email` · `tel` · `sms` · `whatsapp` · `geo` · `event` · `otp` · `crypto` · `epc` · `bookmark` · `app` · `text` · `raw` |
+| **Output** | `png` · `svg` · `pdf` · `eps` · `jpeg` · `webp` · `ascii` · `unicode` · `ansi` · `json` · `datauri` · `txt` |
+| **Style** | 7 module shapes, 5 eye shapes, gradients, logo embedding with excavation, frames, captions |
+| **Also** | image decoding, batch (CSV/JSON → ZIP), label sheets, named presets, scannability scoring |
+
+Twenty more symbologies are registered as *unavailable with a reason* rather than
+omitted, so `/v1/symbologies` never lies about what a given build can do.
 
 ## "Why not just use a library?"
 
@@ -150,34 +182,81 @@ Full reference: [`docs/DEPLOY.md`](docs/DEPLOY.md).
 
 ## API
 
-Live today:
-
 | Endpoint | Purpose |
 |---|---|
-| `GET /v1/healthz` | Liveness. `200` while the process can serve at all. |
-| `GET /v1/readyz` | Readiness. `503` the instant shutdown begins, so load balancers drain cleanly. |
-| `GET /v1/version` | Build identity: version, commit, build date, Go version, platform. |
+| `GET\|POST /v1/qr` | Render a QR code. Every encode, style, and output option. |
+| `GET\|POST /v1/barcode/{symbology}` | Render any of the other 14 symbologies. |
+| `GET\|POST /v1/build/{type}` | Run a payload builder only — structured fields in, raw string out. |
+| `POST /v1/validate` | Diagnose a request without rendering: scannability score, findings, fixes. |
+| `POST /v1/decode` | Image in, data out. `parse=true` returns structured fields. |
+| `POST /v1/batch` | Many codes at once: `items` or CSV in, ZIP or JSON out. |
+| `POST /v1/sheet` | A grid of labels laid out on a page, as print-ready PDF. |
+| `GET /v1/preset` · `GET\|POST /v1/preset/{name}` | Named option bundles; the request overrides them. |
+| `GET /v1/symbologies` | Machine-readable capability matrix for *this* build. |
+| `GET /v1/openapi.json` | OpenAPI 3.1, generated from the live registries. |
+| `GET /v1/healthz` · `/readyz` · `/version` | Liveness, readiness, build identity. Unauthenticated. |
+| `GET /metrics` | Prometheus exposition. |
 
-Full reference and the planned surface: [`docs/API.md`](docs/API.md).
-
-### Coming in M1
+One request shape, three transports. The same field names work as nested JSON, as
+dot-notation query parameters, and as multipart form fields, because a single
+decoder produces the same struct from all three — switching between them is never a
+rewrite.
 
 ```bash
-curl "localhost:3000/v1/qr?data=https://example.com&output.format=ansi"
+# these three are the same request
+curl 'localhost:3000/v1/qr?type=wifi&payload.ssid=Lobby&style.module=dot&output.format=svg'
+
+curl -H 'Content-Type: application/json' localhost:3000/v1/qr -d '{
+  "type": "wifi", "payload": {"ssid": "Lobby"},
+  "style": {"module": "dot"}, "output": {"format": "svg"}}'
+
+curl -F type=wifi -F payload.ssid=Lobby -F style.module=dot -F output.format=svg \
+  localhost:3000/v1/qr
 ```
 
-…renders the code as ANSI blocks straight into your terminal. `ascii` and `ansi` are
-first-class output formats, not afterthoughts: a headless user must be able to *see*
-the code without leaving the shell.
+Unknown fields are rejected with the closest match rather than ignored — a silently
+dropped `output.formt` produces the wrong image and no clue why:
+
+```json
+{"error":{"code":"UNKNOWN_FIELD","message":"unknown field \"output.formt\"",
+          "field":"output.formt","hint":"did you mean \"output.format\"?",
+          "request_id":"AGG4P7RB67RZ0CYP"}}
+```
+
+Full reference: [`docs/API.md`](docs/API.md).
+
+### Will it actually scan?
+
+`POST /v1/validate` answers that before you print ten thousand of them. The expensive
+failure is not an invalid code — it is a *valid* code no scanner can read.
+
+```bash
+curl -s localhost:3000/v1/validate -H 'Content-Type: application/json' \
+  -d '{"data":"https://barqr.dev","style":{"fg":"#e8e8e8"}}' | jq .scannability
+```
+
+```json
+{
+  "score": 30, "grade": "unscannable", "contrast_ratio": 1.2, "quiet_zone": 4,
+  "issues": [{
+    "code": "LOW_CONTRAST", "severity": "error",
+    "message": "contrast between modules and background is 1.2:1",
+    "hint": "use at least 4.5:1; a dark module colour on a light background is safest"
+  }]
+}
+```
+
+It checks contrast, inversion, quiet zone, transparent backgrounds, finder-pattern
+legibility, gradients that fade out, and logos that eat more error correction than
+the level can spare. `BARQR_STRICT_SCANNABILITY=strict` turns findings into
+rejections.
 
 ## Integrating barqr
 
 barqr is a plain HTTP service with no client library and no SDK to keep up to date —
-integration is whatever your stack already uses to make a GET request. Snippets below
-marked ⏳ use `/v1/qr`, which arrives in M1; the transport contract they rely on is
-already fixed.
+integration is whatever your stack already uses to make a GET request.
 
-### 1. As an image URL — no code at all ⏳
+### 1. As an image URL — no code at all
 
 Because every option is a query parameter, a barqr URL *is* the image.
 
@@ -190,7 +269,7 @@ This works anywhere a URL works: an email template, a Markdown file, a Google Do
 Notion page, a PDF generated by a reporting tool. It is the reason non-technical
 teammates can be handed a link instead of a ticket.
 
-### 2. From your backend ⏳
+### 2. From your backend
 
 <details open>
 <summary><b>curl</b></summary>
@@ -288,9 +367,9 @@ readinessProbe:
 `/v1/readyz` flips to `503` the instant `SIGTERM` arrives and *before* connections are
 cut, so a rolling update drains cleanly instead of dropping in-flight renders. Expose it
 as a `ClusterIP` Service with a `NetworkPolicy` allowing ingress only from labelled
-pods — no `Ingress` object. Ready-made manifests land in `deploy/k8s` at M9.
+pods — no `Ingress` object. A full manifest is in [`docs/DEPLOY.md`](docs/DEPLOY.md).
 
-### 5. Behind a gateway or CDN ⏳
+### 5. Behind a gateway or CDN
 
 `GET /v1/qr` is pure and idempotent: the same query always yields the same bytes.
 Responses carry an `ETag`, so any reverse proxy, API gateway, or CDN in front of barqr
@@ -309,21 +388,50 @@ thrashing the scheduler, and `BARQR_REQUEST_TIMEOUT` bounds how long a queued re
 will wait before it is shed. Boot is under 100 ms, so a scale-up is useful immediately
 and a spot-instance eviction costs nothing.
 
-## Roadmap
+## Project status
+
+Built to a ten-milestone plan, committed at every boundary. M0 through M8 are done
+and tested; M9 is the release hardening.
 
 | | Milestone | Contents |
 |---|---|---|
-| ✅ | **M0** skeleton | module, Makefile, lint, CI, config + security gate, `/healthz` `/readyz` `/version` |
-| ⏳ | **M1** core path | Matrix/Canvas, QR encoder, square renderer, png/svg/ascii/ansi writers, `/v1/qr` |
-| | **M2** request layer | one decoder for query/JSON/multipart, error shape, full middleware, ETag, metrics |
-| | **M3** builders | 16 payload builders (wifi, vcard, otp, geo, …) with round-trip `Parse` |
-| | **M4** barcodes | code128, ean13, itf, datamatrix, aztec, pdf417 + HRI text |
-| | **M5** style engine | module/eye shapes, gradients, logo excavation, frames, scannability scoring |
-| | **M6** print | pdf/eps writers, mm/inch/dpi sizing |
-| | **M7** decode | `/v1/decode` — image in, data out, round-trip tested |
-| | **M8** bulk | `/v1/batch` (csv/json → zip/pdf), `/v1/sheet` label grids, presets |
-| | **M9** hardening | fuzzing, SBOM, cosign signing, v1.0.0 |
+| ✅ | **M0** skeleton | module, Makefile, lint, CI, config + startup security gate, probes |
+| ✅ | **M1** core path | Matrix/Canvas, QR encoder, renderer, png/svg/ascii/ansi, `/v1/qr` |
+| ✅ | **M2** request layer | one decoder for three transports, error shape, full middleware, ETag, metrics, OpenAPI |
+| ✅ | **M3** builders | 17 payload builders with round-trip `Parse`, fuzzed |
+| ✅ | **M4** barcodes | 14 further symbologies, check digits, HRI text |
+| ✅ | **M5** style engine | module and eye shapes, gradients, logo excavation, frames, scannability |
+| ✅ | **M6** print | pdf and eps writers, mm/inch/dpi sizing |
+| ✅ | **M7** decode | `/v1/decode`, header-first bomb guards, round-trip tested |
+| ✅ | **M8** bulk | `/v1/batch`, `/v1/sheet`, presets |
+| ▶ | **M9** hardening | fuzzing, SBOM, cosign signing, published image, v1.0.0 |
 | | **M10** optional | zint `full` build tag, dynamic-code module |
+
+### Benchmarks
+
+Measured on an i7-1265U, `make bench`. A plain QR at ten pixels per module:
+
+| | |
+|---|---|
+| Encode | 1.23 ms |
+| Render (matrix → canvas) | 2.2 µs · 2 allocs |
+| Full HTTP round trip to PNG | **4.0 ms** |
+
+The PNG path uses an indexed palette whenever the image fits 256 colours, which a
+plain code always does — measured at 0.8 ms and 772 bytes against 4.9 ms and 1592 for
+true colour. Repeat renders of the same URL are `304`s.
+
+### Test coverage
+
+| Package | | Package | |
+|---|---|---|---|
+| `encoder` | 94.5% | `render` | 95.2% |
+| `writer` | 94.2% | `decoder` | 93.8% |
+| `batch` | 94.2% | `sheet` | 96.2% |
+| `preset` | 92.8% | `config` | 86.0% |
+| `httpapi` | 79.2% | `builder` | 76.9% |
+
+Plus fuzz targets on the request decoder and every builder's `Parse`.
 
 ## Development
 
