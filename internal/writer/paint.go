@@ -281,19 +281,22 @@ func fitCaption(runes []rune, w, h, scale int) ([][fontRows]uint8, int, bool) {
 }
 
 // maxGlyphs is how many glyphs fit in w pixels at this font-pixel size.
-// textWidth(n, pixel) is pixel*((fontCols+1)*n - 1), so it inverts directly.
+// textWidth(n, pixel) is pixel*((fontCols+fontGap)*n - fontGap), so it inverts
+// directly.
 func maxGlyphs(w, pixel int) int {
-	return (w/pixel + 1) / (fontCols + 1)
+	return (w/pixel + fontGap) / (fontCols + fontGap)
 }
 
 // drawGlyphs paints a run of bitmap glyphs with its top-left corner at (x, y),
-// one font pixel of gap between cells.
+// fontGap font pixels of gap between cells.
 //
 // The human-readable line and the caption share it so that the two pieces of
-// text a code can carry come out of one font at one set of metrics.
+// text a code can carry come out of one font at one set of metrics. The
+// advance comes from fontAdvance for the same reason: measuring and drawing
+// must not be able to disagree.
 func drawGlyphs(dst *image.NRGBA, glyphs [][fontRows]uint8, x, y, pixel int, ink color.NRGBA) {
 	for i, g := range glyphs {
-		originX := x + i*(fontCols+1)*pixel
+		originX := x + i*fontAdvance(pixel)
 		for row := range fontRows {
 			bits := g[row]
 			for col := range fontCols {

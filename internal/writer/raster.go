@@ -293,12 +293,12 @@ func layoutHRI(c render.Canvas, w, h, scale int) (hriBand, bool) {
 	return band, true
 }
 
-// textWidth is the width of n glyphs, one font pixel of gap between them.
+// textWidth is the width of n glyphs, fontGap font pixels between them.
 func textWidth(n, pixel int) int {
 	if n == 0 {
 		return 0
 	}
-	return n*(fontCols+1)*pixel - pixel
+	return n*fontAdvance(pixel) - fontGap*pixel
 }
 
 // drawHRI paints the laid-out text onto the ink layer. The glyph drawing
@@ -312,7 +312,22 @@ func drawHRI(dst *image.NRGBA, b hriBand, c color.NRGBA) {
 const (
 	fontCols = 5
 	fontRows = 7
+
+	// fontGap is the blank space between adjacent glyph cells, in font pixels.
+	//
+	// One is too few. At pixel = 1 a single blank column is the first thing
+	// lost to print dot-gain or a soft scan, and glyphs whose outer columns
+	// are both lit — W, M, H — then read as one smear. That matters more here
+	// than it would elsewhere, because the HRI line is the fallback path: it
+	// is read precisely when the barcode would not scan.
+	fontGap = 2
 )
+
+// fontAdvance is the distance from one glyph's left edge to the next.
+//
+// Every place that lays out or measures a run of glyphs goes through this, so
+// the cell size and the gap cannot drift apart between measuring and drawing.
+func fontAdvance(pixel int) int { return (fontCols + fontGap) * pixel }
 
 // glyph returns the bitmap for a character, folding case and falling back to a
 // blank cell. Unknown characters advance without drawing rather than being
@@ -345,8 +360,8 @@ var font5x7 = map[rune][fontRows]uint8{
 	'/': {0b00001, 0b00010, 0b00010, 0b00100, 0b01000, 0b01000, 0b10000},
 	'+': {0b00000, 0b00100, 0b00100, 0b11111, 0b00100, 0b00100, 0b00000},
 	'%': {0b11000, 0b11001, 0b00010, 0b00100, 0b01000, 0b10011, 0b00011},
-	'0': {0b01110, 0b10001, 0b10011, 0b10101, 0b11001, 0b10001, 0b01110},
-	'1': {0b00100, 0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110},
+	'0': {0b01110, 0b10011, 0b10111, 0b10101, 0b11101, 0b11001, 0b01110},
+	'1': {0b00100, 0b01100, 0b10100, 0b00100, 0b00100, 0b00100, 0b11111},
 	'2': {0b01110, 0b10001, 0b00001, 0b00010, 0b00100, 0b01000, 0b11111},
 	'3': {0b11111, 0b00010, 0b00100, 0b00010, 0b00001, 0b10001, 0b01110},
 	'4': {0b00010, 0b00110, 0b01010, 0b10010, 0b11111, 0b00010, 0b00010},
@@ -356,23 +371,23 @@ var font5x7 = map[rune][fontRows]uint8{
 	'8': {0b01110, 0b10001, 0b10001, 0b01110, 0b10001, 0b10001, 0b01110},
 	'9': {0b01110, 0b10001, 0b10001, 0b01111, 0b00001, 0b00010, 0b01100},
 	'A': {0b01110, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001},
-	'B': {0b11110, 0b10001, 0b10001, 0b11110, 0b10001, 0b10001, 0b11110},
-	'C': {0b01110, 0b10001, 0b10000, 0b10000, 0b10000, 0b10001, 0b01110},
+	'B': {0b11100, 0b10010, 0b10010, 0b11100, 0b10010, 0b10010, 0b11100},
+	'C': {0b01111, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b01111},
 	'D': {0b11100, 0b10010, 0b10001, 0b10001, 0b10001, 0b10010, 0b11100},
 	'E': {0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b11111},
 	'F': {0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b10000},
-	'G': {0b01110, 0b10001, 0b10000, 0b10111, 0b10001, 0b10001, 0b01111},
+	'G': {0b00110, 0b01001, 0b10000, 0b10111, 0b10001, 0b01001, 0b00110},
 	'H': {0b10001, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001},
 	'I': {0b01110, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110},
 	'J': {0b00111, 0b00010, 0b00010, 0b00010, 0b00010, 0b10010, 0b01100},
 	'K': {0b10001, 0b10010, 0b10100, 0b11000, 0b10100, 0b10010, 0b10001},
 	'L': {0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b11111},
 	'M': {0b10001, 0b11011, 0b10101, 0b10101, 0b10001, 0b10001, 0b10001},
-	'N': {0b10001, 0b10001, 0b11001, 0b10101, 0b10011, 0b10001, 0b10001},
+	'N': {0b10001, 0b11001, 0b11001, 0b10101, 0b10011, 0b10011, 0b10001},
 	'O': {0b01110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110},
-	'P': {0b11110, 0b10001, 0b10001, 0b11110, 0b10000, 0b10000, 0b10000},
-	'Q': {0b01110, 0b10001, 0b10001, 0b10001, 0b10101, 0b10010, 0b01101},
-	'R': {0b11110, 0b10001, 0b10001, 0b11110, 0b10100, 0b10010, 0b10001},
+	'P': {0b11110, 0b10001, 0b10001, 0b10001, 0b11110, 0b10000, 0b10000},
+	'Q': {0b01110, 0b10001, 0b10001, 0b10101, 0b10011, 0b10010, 0b01101},
+	'R': {0b11110, 0b10001, 0b10001, 0b11110, 0b10110, 0b10011, 0b10001},
 	'S': {0b01111, 0b10000, 0b10000, 0b01110, 0b00001, 0b00001, 0b11110},
 	'T': {0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100},
 	'U': {0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110},

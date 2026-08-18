@@ -5,6 +5,8 @@ import (
 	"errors"
 	"image"
 	"image/color"
+	"math/bits"
+	"slices"
 	"strings"
 	"testing"
 
@@ -916,5 +918,151 @@ func TestPNGWithEveryDecorationStillScans(t *testing.T) {
 				t.Errorf("decoded %q, want %q", res[0].Data, payload)
 			}
 		})
+	}
+}
+
+// TestGlyphsAreDistinguishable is the regression guard for the defect that
+// made an alphanumeric HRI line unreadable in the field.
+//
+// The shipped font drew '0' and 'O' with three pixels between them — a
+// one-pixel diagonal inside an otherwise identical ring. At pixel = 1 those
+// three pixels are the first thing a printer's dot-gain or a soft scan takes
+// away, so the two characters became one shape. '1'/'I', 'C'/'O', 'P'/'R',
+// 'F'/'P' and '8'/'B' were all equally close, and nothing failed: every test
+// asserted that text was drawn, none asserted what.
+//
+// Three is therefore demonstrably not enough. The bar is four pixels for any
+// two glyphs, and six for the pairs that share a silhouette and differ only in
+// an interior detail — the dangerous class, because the eye has no outline to
+// fall back on.
+func TestGlyphsAreDistinguishable(t *testing.T) {
+	t.Parallel()
+
+	distance := func(a, b [fontRows]uint8) int {
+		n := 0
+		for row := range fontRows {
+			n += bits.OnesCount8(a[row] ^ b[row])
+		}
+		return n
+	}
+
+	runes := make([]rune, 0, len(font5x7))
+	for r := range font5x7 {
+		if r != ' ' {
+			runes = append(runes, r)
+		}
+	}
+	slices.Sort(runes)
+
+	// Pairs that differ by a whole stroke rather than by an interior detail.
+	// A missing bar is unmistakable to the eye however few pixels it is, so
+	// these are held to the general bar and not the stricter one.
+	wholeStroke := map[string]bool{"+-": true, "EF": true, "IT": true}
+
+	for i, a := range runes {
+		for _, b := range runes[i+1:] {
+			got := distance(font5x7[a], font5x7[b])
+			if got < 4 {
+				t.Errorf("%c and %c differ by only %d pixels; at one pixel per "+
+					"font pixel they print as the same glyph", a, b, got)
+			}
+			if wholeStroke[string([]rune{a, b})] && got < 4 {
+				t.Errorf("%c and %c differ by only %d pixels", a, b, got)
+			}
+		}
+	}
+
+	// The pairs the field report named, plus the ones found alongside them.
+	// Each shares an outline, so only the interior tells them apart.
+	confusable := [][2]rune{
+		{'0', 'O'}, {'0', 'Q'}, {'O', 'Q'}, {'0', 'D'},
+		{'1', 'I'}, {'1', 'L'}, {'I', 'L'},
+		{'8', 'B'}, {'C', 'O'}, {'P', 'R'}, {'F', 'P'},
+		{'2', 'Z'}, {'5', 'S'}, {'6', 'G'},
+	}
+	for _, p := range confusable {
+		if got := distance(font5x7[p[0]], font5x7[p[1]]); got < 6 {
+			t.Errorf("%c and %c differ by only %d pixels, under the 6 required "+
+				"of a pair that shares a silhouette", p[0], p[1], got)
+		}
+	}
+}
+
+// TestGlyphsNeverTouch pins the inter-glyph gap, the other half of the
+// illegibility report: adjacent characters ran together into a smear.
+//
+// It draws the worst case — two cells with every pixel lit — so the assertion
+// is about the metrics rather than about which glyphs happen to be in the
+// table. One blank column was the shipped behaviour and was not enough.
+func TestGlyphsNeverTouch(t *testing.T) {
+	t.Parallel()
+
+	var solid [fontRows]uint8
+	for row := range fontRows {
+		solid[row] = 1<<fontCols - 1
+	}
+
+	for _, pixel := range []int{1, 2, 3} {
+		w := textWidth(2, pixel)
+		img := image.NewNRGBA(image.Rect(0, 0, w, fontRows*pixel))
+		ink := color.NRGBA{A: 255}
+		drawGlyphs(img, [][fontRows]uint8{solid, solid}, 0, 0, pixel, ink)
+
+		blank := 0
+		for x := range w {
+			lit := false
+			for y := range fontRows * pixel {
+				if img.NRGBAAt(x, y).A != 0 {
+					lit = true
+					break
+				}
+			}
+			if !lit {
+				blank++
+			}
+		}
+		if want := fontGap * pixel; blank != want {
+			t.Errorf("pixel=%d: %d blank columns between glyphs, want %d",
+				pixel, blank, want)
+		}
+	}
+}
+
+// TestTextWidthAgreesWithDrawGlyphs is the guard for the hazard that the
+// advance lives in two places: a run is measured by textWidth and drawn by
+// drawGlyphs, and if those ever disagree the caption is centred wrongly or
+// overflows the image it was checked against.
+func TestTextWidthAgreesWithDrawGlyphs(t *testing.T) {
+	t.Parallel()
+
+	var solid [fontRows]uint8
+	for row := range fontRows {
+		solid[row] = 1<<fontCols - 1
+	}
+
+	for _, pixel := range []int{1, 2, 3} {
+		for n := 1; n <= 5; n++ {
+			glyphs := make([][fontRows]uint8, n)
+			for i := range glyphs {
+				glyphs[i] = solid
+			}
+			w := textWidth(n, pixel)
+			img := image.NewNRGBA(image.Rect(0, 0, w+pixel, fontRows*pixel))
+			drawGlyphs(img, glyphs, 0, 0, pixel, color.NRGBA{A: 255})
+
+			right := -1
+			for x := range w + pixel {
+				for y := range fontRows * pixel {
+					if img.NRGBAAt(x, y).A != 0 {
+						right = x
+						break
+					}
+				}
+			}
+			if right != w-1 {
+				t.Errorf("pixel=%d n=%d: ink ends at %d, textWidth says %d",
+					pixel, n, right, w-1)
+			}
+		}
 	}
 }
