@@ -5,6 +5,77 @@
 
 <!-- append ADRs below, newest first -->
 
+## ADR-017 — Phone normalisation is opt-in by region, never assumed (2026-08-19)
+
+- status: accepted
+- context: a user built a vCard from a customer record held nationally
+  (`0664108852`). Nothing in the payload said Algeria, so the importing contacts
+  app guessed a country from the *device* and displayed North-American grouping.
+  It was reported as a data error; the data was right and the payload was
+  ambiguous. A number with no country code also cannot be dialled from abroad.
+- decision: add an optional `payload.phone_region` (ISO 3166-1 alpha-2) to the
+  four phone-carrying builders. A number already in `+` form passes through and
+  the region is never consulted; a national number plus a region becomes E.164
+  and is validated; an unknown region, or a number invalid for it, is a 400. **A
+  national number with no region is passed through unchanged.**
+- alternatives:
+  - *Reject region-less national numbers* — v0.1.0 has shipped and callers pass
+    them today. It would break working integrations to prevent a mistake the
+    caller can already avoid, and the numbers it would break are legitimate:
+    domestic printing is a real use, and short codes (why `phoneMinDigits` is 3)
+    are national by definition.
+  - *Default the region from configuration or a locale* — barqr is stateless,
+    has no `Accept-Language` contract and no geo-IP. Any default is a guess that
+    converts a *visibly* local number into an *invisibly* wrong one: E.164,
+    plausible, and dialling the wrong country. Strictly worse than the status quo.
+  - *Normalise with a small in-repo calling-code table* — half the feature.
+    Rejecting what cannot be dialled is the part that prevents the reported
+    failure, and that needs per-region validity, not a prefix table.
+- consequences: the image grows 2.7 MB for libphonenumber's metadata, and
+  `MAX_IMAGE_BYTES` rises from 20 to 24 MB. That is a deliberate reversal of
+  ADR-009's "no dependency for PDF" instinct, and the distinction is worth
+  stating: hand-writing a PDF is bounded work that stays correct, whereas
+  hand-writing the world's dialling rules is unbounded work that is wrong
+  somewhere from the first day. `Parse` never recovers `phone_region` — the
+  built string is already international, so a region would be ignored on rebuild
+  and claiming one would break ADR-008's round trip. Opt-in strictness leaves
+  room for a future `BARQR_REQUIRE_E164`; that would supersede this ADR rather
+  than quietly contradict it. The field is `phone_region`, not `region`, because
+  `vcard` already has a postal `region` and the collision would have been silent.
+
+## ADR-016 — One type family per generic name, honoured by every format (2026-08-19)
+
+- status: accepted
+- context: the human-readable line under a linear code was unreadable for
+  alphanumeric payloads — `0` and `O` differed by three pixels, glyphs touched —
+  and there was no way to make it bigger or change its face. Adding
+  `style.hri_font` ran into a real asymmetry: the raster path had exactly one
+  embedded bitmap face and no font loader, while SVG, PDF and EPS hand text to a
+  font engine.
+- decision: `style.hri_font` is a closed enum of generic families — `mono` and
+  `sans` — each mapping to a genuinely different real face in *every* output
+  format. The raster path gained a second face, converted at init from
+  `x/image/font/basicfont`, which was already a dependency.
+- alternatives:
+  - *Capability-gate it* — accept the family for the formats that can draw it
+    and return 400 for the rest. Rejected because `output.format` is the option
+    people vary last: the same code, PNG for the web and PDF for print. A gate
+    would fire at exactly that moment, and the request that worked yesterday
+    fails today for a reason that names an unrelated field.
+  - *Accept a font name* — an unvalidated pass-through into a `font-family` and
+    a `/BaseFont`, silently substituted by whatever is installed. The same
+    accepted-and-ignored bug one layer down.
+  - *Offer `serif` too* — free on the vector paths, impossible in a bitmap cell
+    this small. Three families where one is a lie is worse than two that are not.
+- consequences: the default PDF and EPS face moves from Helvetica to Courier — a
+  visible change, restored with `hri_font=sans` — because a printed code's HRI
+  is monospaced and it is the only default the three paths agree on. Holding the
+  *borrowed* face to the same legibility bar as the hand-drawn one found that it
+  had the same defect, and four of its glyphs are redrawn; that test runs over
+  every registered face precisely so a face nobody typed cannot smuggle the bug
+  back in. Adding a family now means adding a real face to the rasteriser, and a
+  test fails if the enum and the face table disagree.
+
 ## ADR-015 — A registry outage is waited out, never engineered around (2026-08-17)
 
 - status: accepted

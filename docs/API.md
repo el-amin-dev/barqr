@@ -309,6 +309,47 @@ curl 'localhost:3000/v1/build/wifi?payload.ssid=Lobby&payload.password=guest2026
 Every builder round-trips: `Parse(Build(payload))` returns an equal payload, asserted
 across the whole registry and fuzzed.
 
+### Phone numbers and E.164
+
+`tel`, `vcard`, `whatsapp` and `mecard` all accept `payload.phone_region`, an
+ISO 3166-1 alpha-2 country code. It exists because a national number carries no
+country, and nothing downstream can recover one.
+
+| Input | Result |
+|---|---|
+| `phone=+213664108852` | unchanged; `phone_region` is not consulted |
+| `phone=0664108852` `phone_region=DZ` | `+213664108852` |
+| `phone=0664108852` | **unchanged** |
+| `phone=0664108852` `phone_region=XX` | `400` — not a country code |
+| `phone=000` `phone_region=DZ` | `400` — not a valid number there |
+
+```bash
+curl -s "$BARQR/v1/build/vcard?payload.last_name=Diallo\
+&payload.phone=0664108852&payload.phone_region=DZ"
+# TEL;TYPE=WORK,VOICE:+213664108852
+```
+
+A number that already starts with `+` wins outright. The caller has said which
+country it is, and re-parsing it against a different region is how a correct
+number becomes a wrong one — so `phone_region` describes the numbers that do
+*not* say for themselves, which is why one region covers both of a vCard's.
+
+**A national number with no region is passed through unchanged.** That is
+deliberate, not an oversight. barqr cannot tell that such a number is wrong: a
+code printed for domestic use is legitimate, and short codes are national by
+definition. It also has no locale to guess from — no `Accept-Language`
+contract, no geo-IP — so any assumed region would turn a visibly local number
+into an invisibly wrong one, formatted plausibly and dialling the wrong
+country. Supplying `phone_region` is how a caller opts into strictness, and
+from then on an invalid number is refused rather than emitted.
+
+One consequence worth knowing: `wa.me` needs a country code. A `whatsapp` link
+built from a national number is syntactically fine and will resolve for nobody.
+Set `phone_region`, or give the number in `+` form.
+
+Note `vcard` keeps its own `payload.region` — the postal one, "Greater London".
+The phone field is `phone_region` precisely so the two cannot be confused.
+
 ### `location` — auto-detected places
 
 `location` reads free-form input and works out what it is before building the
