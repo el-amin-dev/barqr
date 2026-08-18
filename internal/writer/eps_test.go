@@ -210,8 +210,11 @@ func TestEPSHRIIsEscapedAndCentred(t *testing.T) {
 	if !strings.Contains(doc, want) {
 		t.Errorf("body does not contain the escaped, centred show:\nwant %q", want)
 	}
-	if !strings.Contains(doc, "/Helvetica findfont") {
-		t.Error("no Helvetica font selected for the human-readable line")
+	// Courier is the default: a printed code's human-readable line is
+	// monospaced, and it is the only choice that agrees with the raster and
+	// SVG paths. style.hri_font=sans asks for the proportional face.
+	if !strings.Contains(doc, "/Courier findfont") {
+		t.Error("no Courier font selected for the human-readable line")
 	}
 
 	// The band must be inside the bounding box, or the text is clipped away.

@@ -236,6 +236,14 @@ func (s *Server) requestSchema() map[string]any {
 					"eye_fg":     colorSchema(),
 					"bar_height": map[string]any{"type": "integer", "minimum": 0},
 					"hri":        map[string]any{"type": "boolean"},
+					"hri_size": map[string]any{
+						"type":    "number",
+						"minimum": render.MinHRISize,
+						"maximum": render.MaxHRISize,
+					},
+					"hri_font": map[string]any{
+						"type": "string", "enum": toAny(render.HRIFonts()),
+					},
 					"logo":       map[string]any{"type": "string", "description": "a data: URI"},
 					"logo_scale": map[string]any{"type": "number", "minimum": 0.05, "maximum": 0.35},
 					"excavate":   map[string]any{"type": "boolean"},

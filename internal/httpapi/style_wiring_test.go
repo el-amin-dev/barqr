@@ -230,3 +230,106 @@ func TestSemicolonInQueryIsRejected(t *testing.T) {
 	}
 	_ = readAll(t, ok)
 }
+
+// TestEveryLinearStyleOptionChangesTheOutput is the sibling of the test above,
+// for the options that only a linear code has.
+//
+// It exists separately because the test above renders a QR, and a QR has no
+// human-readable line — an hri_* row added there would pass while doing
+// nothing. It runs every row against a vector format and a raster one, because
+// the two draw text through completely different machinery: the failure this
+// guards is an option honoured by the SVG writer and quietly dropped by the
+// rasteriser, which is what a face selector on a single-font path would be.
+func TestEveryLinearStyleOptionChangesTheOutput(t *testing.T) {
+	t.Parallel()
+
+	h := serverWith(t, nil).Handler()
+
+	render := func(t *testing.T, format string, extra url.Values) []byte {
+		t.Helper()
+
+		// The reporter's own payload: letters and digits together, which is
+		// the case the human-readable line has to survive.
+		q := url.Values{
+			"data":          {"JX8QQEMJQ0KR"},
+			"output.format": {format},
+			"output.scale":  {"8"},
+		}
+		for k, v := range extra {
+			q[k] = v
+		}
+
+		resp := do(t, h, http.MethodGet, "/v1/barcode/code39?"+q.Encode())
+		body := readAll(t, resp)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("status = %d for %v as %s: %s", resp.StatusCode, extra, format, body)
+		}
+		return body
+	}
+
+	tests := []struct {
+		name string
+		opts url.Values
+	}{
+		{"human-readable text off", url.Values{"style.hri": {"false"}}},
+		{"human-readable text size", url.Values{"style.hri_size": {"5"}}},
+		{"human-readable text font", url.Values{"style.hri_font": {"sans"}}},
+		{"bar height", url.Values{"style.bar_height": {"40"}}},
+	}
+
+	for _, format := range []string{"svg", "png"} {
+		for _, tt := range tests {
+			t.Run(format+"/"+tt.name, func(t *testing.T) {
+				t.Parallel()
+
+				plain := render(t, format, nil)
+				if got := render(t, format, tt.opts); bytes.Equal(got, plain) {
+					t.Errorf("%v produced output identical to the default as %s; "+
+						"the option is decoded but never reaches the renderer",
+						tt.opts, format)
+				}
+			})
+		}
+	}
+}
+
+// TestHRIOptionsAreRefusedNotIgnored checks the other half of the contract: a
+// value barqr cannot honour has to say so, in the same shape as every other
+// validation failure, rather than falling back to a default the caller did not
+// ask for and cannot see.
+func TestHRIOptionsAreRefusedNotIgnored(t *testing.T) {
+	t.Parallel()
+
+	h := serverWith(t, nil).Handler()
+
+	tests := []struct {
+		name  string
+		query string
+		field string
+	}{
+		{"unknown font", "style.hri_font=comic", "style.hri_font"},
+		{"size below the floor", "style.hri_size=0.3", "style.hri_size"},
+		{"size above the ceiling", "style.hri_size=99", "style.hri_size"},
+	}
+
+	// Every output format must agree. A request that succeeded as SVG and
+	// failed as PNG would make the error depend on a field the caller thinks
+	// is unrelated.
+	for _, format := range []string{"svg", "png", "pdf"} {
+		for _, tt := range tests {
+			t.Run(format+"/"+tt.name, func(t *testing.T) {
+				t.Parallel()
+
+				resp := do(t, h, http.MethodGet,
+					"/v1/barcode/code39?data=ABC&output.format="+format+"&"+tt.query)
+				body := readAll(t, resp)
+				if resp.StatusCode != http.StatusBadRequest {
+					t.Fatalf("status = %d as %s, want 400: %s", resp.StatusCode, format, body)
+				}
+				if !bytes.Contains(body, []byte(tt.field)) {
+					t.Errorf("error does not name %s: %s", tt.field, body)
+				}
+			})
+		}
+	}
+}

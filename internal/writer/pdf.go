@@ -20,21 +20,25 @@ const (
 	// in. Everything physical in these two writers is expressed in points.
 	pointsPerInch = 72.0
 
-	// hriBandModules is the space reserved beneath a code for its
-	// human-readable line, and hriFontModules the text size inside it, both in
-	// module units. Sizing the text relative to the module keeps the line
-	// legible at every output size without a second scale factor to tune.
-	hriBandModules = 3
-	hriFontModules = 2
+	// hriBandPadModules is the clearance around the human-readable line,
+	// added to whatever text height the style asks for. Sizing the text
+	// relative to the module keeps the line legible at every output size
+	// without a second scale factor to tune.
+	hriBandPadModules = 1
 )
 
-// pdfHelveticaMeanWidth is the mean advance width of Helvetica as a fraction
-// of the font size. It is used only to centre the human-readable line: the
-// real widths live in the font's metrics, and carrying the 224-entry table to
-// centre one short string of digits is not worth the bytes. Digits are 0.556em
-// and the common punctuation is narrower, so 0.55 lands within a character
-// width for any realistic HRI.
-const pdfHelveticaMeanWidth = 0.55
+// Mean advance width of the base-14 faces, as a fraction of the font size.
+//
+// These centre the human-readable line. The real widths live in the fonts'
+// metrics, and carrying a 224-entry table to centre one short string is not
+// worth the bytes. Courier is monospaced, so 0.6 is not an approximation at
+// all but the exact advance of every glyph; Helvetica's digits are 0.556em
+// and its common punctuation narrower, so 0.55 lands within a character width
+// for any realistic HRI.
+const (
+	pdfCourierWidth   = 0.6
+	pdfHelveticaWidth = 0.55
+)
 
 func init() { Register(pdfWriter{}) }
 
@@ -81,7 +85,7 @@ func (pdfWriter) Write(c render.Canvas, o OutputOpts) ([]byte, error) {
 	}
 	if c.HRI != "" {
 		objs = append(objs,
-			[]byte("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica "+
+			[]byte("<< /Type /Font /Subtype /Type1 /BaseFont /"+vecFontName(c.Style.HRIFont)+" "+
 				"/Encoding /WinAnsiEncoding >>"))
 	}
 
@@ -174,14 +178,15 @@ func pdfContent(c render.Canvas, page vecPage) []byte {
 	return b.Bytes()
 }
 
-// pdfText draws the human-readable line in Helvetica, centred under the code.
+// pdfText draws the human-readable line in a base-14 face, centred under the
+// code.
 func pdfText(b *bytes.Buffer, c render.Canvas, page vecPage) {
 	if c.HRI == "" {
 		return
 	}
 
-	size := hriFontModules * page.Module
-	width := float64(len(c.HRI)) * size * pdfHelveticaMeanWidth
+	size := hriFontModules(c) * page.Module
+	width := float64(len(c.HRI)) * size * vecMeanWidth(c.Style.HRIFont)
 	x := max((page.W-width)/2, 0)
 
 	fmt.Fprintf(b, "%s rg\nBT\n/F1 %s Tf\n%s %s Td\n%s Tj\nET\n",

@@ -2,6 +2,8 @@ package render
 
 import (
 	"fmt"
+	"slices"
+	"strings"
 
 	"github.com/el-amin-dev/barqr/internal/encoder"
 )
@@ -124,7 +126,28 @@ func validateStyleExtras(s Style) error {
 	if err := s.Logo.validate(); err != nil {
 		return err
 	}
+	if err := validateHRI(s); err != nil {
+		return err
+	}
 	return s.Frame.validate()
+}
+
+// validateHRI checks the human-readable text options.
+//
+// Zero is tolerated for the size and empty for the family, because a Style
+// built in Go without either still has to render — that is what makes the
+// zero value usable. An explicit out-of-range size is refused, since silently
+// clamping it would be an option accepted and then ignored.
+func validateHRI(s Style) error {
+	if s.HRISize != 0 && (s.HRISize < MinHRISize || s.HRISize > MaxHRISize) {
+		return fmt.Errorf("%w: hri size %g is outside %g..%g modules",
+			ErrInvalidStyle, s.HRISize, MinHRISize, MaxHRISize)
+	}
+	if s.HRIFont != "" && !slices.Contains(HRIFonts(), s.HRIFont) {
+		return fmt.Errorf("%w: unknown hri font %q, expected one of %s",
+			ErrInvalidStyle, s.HRIFont, strings.Join(HRIFonts(), ", "))
+	}
+	return nil
 }
 
 // hasFinderPatterns reports whether the matrix looks like a QR symbol, which

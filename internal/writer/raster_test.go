@@ -1,6 +1,7 @@
 package writer
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"image"
@@ -372,21 +373,23 @@ func TestLayoutHRIRefusesTextItCannotFit(t *testing.T) {
 func TestGlyphFoldsCaseAndFallsBackToBlank(t *testing.T) {
 	t.Parallel()
 
-	if glyph('a') != glyph('A') {
-		t.Error("lowercase and uppercase A differ")
-	}
-	if glyph('é') != glyph(' ') {
-		t.Error("unknown rune did not fall back to a blank cell")
-	}
-	if glyph('0') == glyph(' ') {
-		t.Error("'0' is blank")
+	for _, f := range hriFaces {
+		if f.glyph('a') != f.glyph('A') {
+			t.Errorf("%s: lowercase and uppercase A differ", f.name)
+		}
+		if f.glyph('é') != f.glyph(' ') {
+			t.Errorf("%s: unknown rune did not fall back to a blank cell", f.name)
+		}
+		if f.glyph('0') == f.glyph(' ') {
+			t.Errorf("%s: '0' is blank", f.name)
+		}
 	}
 }
 
 func TestTextWidthOfNothingIsZero(t *testing.T) {
 	t.Parallel()
 
-	if got := textWidth(0, 3); got != 0 {
+	if got := faceMono.textWidth(0, 3); got != 0 {
 		t.Errorf("textWidth(0, 3) = %d, want 0", got)
 	}
 }
@@ -803,14 +806,14 @@ func TestFitCaptionShrinksThenTruncates(t *testing.T) {
 		{name: "a short caption fits whole", text: "AB", w: 400, h: 40, wantOK: true, wantLen: 2},
 		{
 			name: "a long caption is cut with an ellipsis", text: "ABCDEFGHIJKLMNOP",
-			w: 60, h: 40, wantOK: true, wantLen: maxGlyphs(60, 1), ellipsis: true,
+			w: 60, h: 40, wantOK: true, wantLen: faceMono.maxGlyphs(60, 1), ellipsis: true,
 		},
 		{name: "no room for even one glyph", text: "ABCDEF", w: 3, h: 40},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			glyphs, pixel, ok := fitCaption([]rune(tc.text), tc.w, tc.h, scale)
+			glyphs, pixel, ok := fitCaption(faceMono, []rune(tc.text), tc.w, tc.h, scale)
 			if ok != tc.wantOK {
 				t.Fatalf("ok = %v, want %v", ok, tc.wantOK)
 			}
@@ -820,7 +823,7 @@ func TestFitCaptionShrinksThenTruncates(t *testing.T) {
 			if len(glyphs) != tc.wantLen {
 				t.Errorf("glyph count = %d, want %d", len(glyphs), tc.wantLen)
 			}
-			if got := textWidth(len(glyphs), pixel); got > tc.w {
+			if got := faceMono.textWidth(len(glyphs), pixel); got > tc.w {
 				t.Errorf("text is %d pixels wide, want at most %d", got, tc.w)
 			}
 			if got := fontRows * pixel; got > tc.h {
@@ -830,7 +833,7 @@ func TestFitCaptionShrinksThenTruncates(t *testing.T) {
 				// Truncation has to be visible: a caption silently cut mid-word
 				// reads as a different label.
 				for i := max(0, len(glyphs)-3); i < len(glyphs); i++ {
-					if glyphs[i] != glyph('.') {
+					if glyphs[i] != faceMono.glyph('.') {
 						t.Errorf("glyph %d is not part of the ellipsis", i)
 					}
 				}
@@ -938,39 +941,18 @@ func TestPNGWithEveryDecorationStillScans(t *testing.T) {
 func TestGlyphsAreDistinguishable(t *testing.T) {
 	t.Parallel()
 
-	distance := func(a, b [fontRows]uint8) int {
+	distance := func(f *bitmapFace, a, b glyphBits) int {
 		n := 0
-		for row := range fontRows {
+		for row := range f.rows {
 			n += bits.OnesCount8(a[row] ^ b[row])
 		}
 		return n
 	}
 
-	runes := make([]rune, 0, len(font5x7))
-	for r := range font5x7 {
-		if r != ' ' {
-			runes = append(runes, r)
-		}
-	}
-	slices.Sort(runes)
-
 	// Pairs that differ by a whole stroke rather than by an interior detail.
 	// A missing bar is unmistakable to the eye however few pixels it is, so
 	// these are held to the general bar and not the stricter one.
 	wholeStroke := map[string]bool{"+-": true, "EF": true, "IT": true}
-
-	for i, a := range runes {
-		for _, b := range runes[i+1:] {
-			got := distance(font5x7[a], font5x7[b])
-			if got < 4 {
-				t.Errorf("%c and %c differ by only %d pixels; at one pixel per "+
-					"font pixel they print as the same glyph", a, b, got)
-			}
-			if wholeStroke[string([]rune{a, b})] && got < 4 {
-				t.Errorf("%c and %c differ by only %d pixels", a, b, got)
-			}
-		}
-	}
 
 	// The pairs the field report named, plus the ones found alongside them.
 	// Each shares an outline, so only the interior tells them apart.
@@ -980,10 +962,36 @@ func TestGlyphsAreDistinguishable(t *testing.T) {
 		{'8', 'B'}, {'C', 'O'}, {'P', 'R'}, {'F', 'P'},
 		{'2', 'Z'}, {'5', 'S'}, {'6', 'G'},
 	}
-	for _, p := range confusable {
-		if got := distance(font5x7[p[0]], font5x7[p[1]]); got < 6 {
-			t.Errorf("%c and %c differ by only %d pixels, under the 6 required "+
-				"of a pair that shares a silhouette", p[0], p[1], got)
+
+	// Every face barqr offers has to clear the bar, not just the one drawn by
+	// hand. A borrowed face is exactly where an unreadable zero would sneak
+	// back in, because nobody looks at a table they did not type.
+	for _, f := range hriFaces {
+		runes := make([]rune, 0, len(f.glyphs))
+		for r := range f.glyphs {
+			if r != ' ' {
+				runes = append(runes, r)
+			}
+		}
+		slices.Sort(runes)
+
+		for i, a := range runes {
+			for _, b := range runes[i+1:] {
+				got := distance(f, f.glyph(a), f.glyph(b))
+				if got < 4 && !wholeStroke[string([]rune{a, b})] {
+					t.Errorf("%s: %c and %c differ by only %d pixels; at one "+
+						"image pixel per font pixel they print as one glyph",
+						f.name, a, b, got)
+				}
+			}
+		}
+
+		for _, p := range confusable {
+			if got := distance(f, f.glyph(p[0]), f.glyph(p[1])); got < 6 {
+				t.Errorf("%s: %c and %c differ by only %d pixels, under the 6 "+
+					"required of a pair that shares a silhouette",
+					f.name, p[0], p[1], got)
+			}
 		}
 	}
 }
@@ -997,33 +1005,34 @@ func TestGlyphsAreDistinguishable(t *testing.T) {
 func TestGlyphsNeverTouch(t *testing.T) {
 	t.Parallel()
 
-	var solid [fontRows]uint8
-	for row := range fontRows {
-		solid[row] = 1<<fontCols - 1
-	}
+	for _, f := range hriFaces {
+		var solid glyphBits
+		for row := range f.rows {
+			solid[row] = 1<<f.cols - 1
+		}
 
-	for _, pixel := range []int{1, 2, 3} {
-		w := textWidth(2, pixel)
-		img := image.NewNRGBA(image.Rect(0, 0, w, fontRows*pixel))
-		ink := color.NRGBA{A: 255}
-		drawGlyphs(img, [][fontRows]uint8{solid, solid}, 0, 0, pixel, ink)
+		for _, pixel := range []int{1, 2, 3} {
+			w := f.textWidth(2, pixel)
+			img := image.NewNRGBA(image.Rect(0, 0, w, f.rows*pixel))
+			drawGlyphs(img, f, []glyphBits{solid, solid}, 0, 0, pixel, color.NRGBA{A: 255})
 
-		blank := 0
-		for x := range w {
-			lit := false
-			for y := range fontRows * pixel {
-				if img.NRGBAAt(x, y).A != 0 {
-					lit = true
-					break
+			blank := 0
+			for x := range w {
+				lit := false
+				for y := range f.rows * pixel {
+					if img.NRGBAAt(x, y).A != 0 {
+						lit = true
+						break
+					}
+				}
+				if !lit {
+					blank++
 				}
 			}
-			if !lit {
-				blank++
+			if want := f.gap * pixel; blank != want {
+				t.Errorf("%s pixel=%d: %d blank columns between glyphs, want %d",
+					f.name, pixel, blank, want)
 			}
-		}
-		if want := fontGap * pixel; blank != want {
-			t.Errorf("pixel=%d: %d blank columns between glyphs, want %d",
-				pixel, blank, want)
 		}
 	}
 }
@@ -1035,34 +1044,122 @@ func TestGlyphsNeverTouch(t *testing.T) {
 func TestTextWidthAgreesWithDrawGlyphs(t *testing.T) {
 	t.Parallel()
 
-	var solid [fontRows]uint8
-	for row := range fontRows {
-		solid[row] = 1<<fontCols - 1
-	}
+	for _, f := range hriFaces {
+		var solid glyphBits
+		for row := range f.rows {
+			solid[row] = 1<<f.cols - 1
+		}
 
-	for _, pixel := range []int{1, 2, 3} {
-		for n := 1; n <= 5; n++ {
-			glyphs := make([][fontRows]uint8, n)
-			for i := range glyphs {
-				glyphs[i] = solid
-			}
-			w := textWidth(n, pixel)
-			img := image.NewNRGBA(image.Rect(0, 0, w+pixel, fontRows*pixel))
-			drawGlyphs(img, glyphs, 0, 0, pixel, color.NRGBA{A: 255})
+		for _, pixel := range []int{1, 2, 3} {
+			for n := 1; n <= 5; n++ {
+				glyphs := make([]glyphBits, n)
+				for i := range glyphs {
+					glyphs[i] = solid
+				}
+				w := f.textWidth(n, pixel)
+				img := image.NewNRGBA(image.Rect(0, 0, w+pixel, f.rows*pixel))
+				drawGlyphs(img, f, glyphs, 0, 0, pixel, color.NRGBA{A: 255})
 
-			right := -1
-			for x := range w + pixel {
-				for y := range fontRows * pixel {
-					if img.NRGBAAt(x, y).A != 0 {
-						right = x
-						break
+				right := -1
+				for x := range w + pixel {
+					for y := range f.rows * pixel {
+						if img.NRGBAAt(x, y).A != 0 {
+							right = x
+							break
+						}
 					}
 				}
-			}
-			if right != w-1 {
-				t.Errorf("pixel=%d n=%d: ink ends at %d, textWidth says %d",
-					pixel, n, right, w-1)
+				if right != w-1 {
+					t.Errorf("%s pixel=%d n=%d: ink ends at %d, textWidth says %d",
+						f.name, pixel, n, right, w-1)
+				}
 			}
 		}
+	}
+}
+
+// TestHRIFaceRegistryMatchesTheAPI holds the raster face table and the family
+// names the API advertises to each other.
+//
+// They are declared in different packages, so nothing but this test stops one
+// gaining a value the other does not have — and a family accepted by the SVG
+// writer and silently swapped for the default by the rasteriser is exactly the
+// accepted-and-ignored failure this project keeps rediscovering.
+func TestHRIFaceRegistryMatchesTheAPI(t *testing.T) {
+	t.Parallel()
+
+	advertised := render.HRIFonts()
+	if len(advertised) != len(hriFaces) {
+		t.Fatalf("render advertises %v but the rasteriser has %d faces",
+			advertised, len(hriFaces))
+	}
+	for _, name := range advertised {
+		f, ok := hriFaces[name]
+		if !ok {
+			t.Errorf("no raster face for advertised family %q", name)
+			continue
+		}
+		if f.name != name {
+			t.Errorf("face registered under %q calls itself %q", name, f.name)
+		}
+		// Every face has to cover the alphabet a linear code can emit,
+		// otherwise a caller picking it gets blanks where digits should be.
+		for _, r := range hriAlphabet() {
+			if _, has := f.glyphs[r]; !has {
+				t.Errorf("face %q has no glyph for %q", name, r)
+			}
+		}
+	}
+}
+
+// TestRasterHRISizeIsHonoured pins style.hri_size to something observable.
+//
+// The trap it guards is specific: layoutHRI shrinks the font until the text
+// fits the width, so a naive implementation reserves only the shrunken height
+// and a width-constrained code renders identically at every size — an option
+// accepted and then discarded.
+func TestRasterHRISizeIsHonoured(t *testing.T) {
+	t.Parallel()
+
+	render1 := func(size float64) *image.NRGBA {
+		t.Helper()
+		st := render.DefaultStyle()
+		st.HRISize = size
+		c := rasterLinear(t, st, "JX8QQEMJQ0KR")
+		img, err := Rasterize(c, OutputOpts{Scale: 6})
+		if err != nil {
+			t.Fatalf("Rasterize(hri_size=%v): %v", size, err)
+		}
+		return img
+	}
+
+	small, large := render1(2), render1(5)
+	if large.Bounds().Dy() <= small.Bounds().Dy() {
+		t.Errorf("hri_size=5 produced a %d-pixel image, not taller than "+
+			"hri_size=2 at %d", large.Bounds().Dy(), small.Bounds().Dy())
+	}
+}
+
+// TestRasterHRIFontIsHonoured pins style.hri_font on the raster path, which is
+// the path where a face selector is easiest to accept and quietly ignore.
+func TestRasterHRIFontIsHonoured(t *testing.T) {
+	t.Parallel()
+
+	draw := func(family string) *image.NRGBA {
+		t.Helper()
+		st := render.DefaultStyle()
+		st.HRIFont = family
+		c := rasterLinear(t, st, "JX8QQEMJQ0KR")
+		img, err := Rasterize(c, OutputOpts{Scale: 6})
+		if err != nil {
+			t.Fatalf("Rasterize(hri_font=%q): %v", family, err)
+		}
+		return img
+	}
+
+	mono, sans := draw(render.HRIFontMono), draw(render.HRIFontSans)
+	if bytes.Equal(mono.Pix, sans.Pix) {
+		t.Error("mono and sans produced identical pixels; the family never " +
+			"reached the rasteriser")
 	}
 }

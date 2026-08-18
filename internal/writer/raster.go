@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"math"
 
 	"github.com/el-amin-dev/barqr/internal/render"
 )
@@ -236,8 +237,10 @@ func findEyes(c *render.Canvas) []image.Point {
 
 // hriBand is the placement of the human-readable text under a linear code.
 type hriBand struct {
+	// face is the type family the glyphs came from, needed again to draw them.
+	face *bitmapFace
 	// glyphs are the resolved bitmaps, one per character.
-	glyphs [][fontRows]uint8
+	glyphs []glyphBits
 	// pixel is the size of one font pixel in image pixels.
 	pixel int
 	// x and y are the top-left corner of the text block.
@@ -261,19 +264,26 @@ func layoutHRI(c render.Canvas, w, h, scale int) (hriBand, bool) {
 		return hriBand{}, false
 	}
 
+	f := hriFace(c.Style.HRIFont)
 	runes := []rune(c.HRI)
-	band := hriBand{glyphs: make([][fontRows]uint8, 0, len(runes))}
+	band := hriBand{face: f, glyphs: make([]glyphBits, 0, len(runes))}
 	for _, r := range runes {
-		band.glyphs = append(band.glyphs, glyph(r))
+		band.glyphs = append(band.glyphs, f.glyph(r))
 	}
 
-	// Aim for text about two modules tall, the usual proportion on a printed
-	// linear code, then shrink until the whole string fits the image width.
-	band.pixel = max(1, (2*scale+fontRows/2)/fontRows)
-	for band.pixel > 1 && textWidth(len(band.glyphs), band.pixel) > w {
+	// Aim for the requested text height — two modules by default, the usual
+	// proportion on a printed linear code — then shrink until the whole string
+	// fits the image width.
+	size := c.Style.HRISize
+	if size <= 0 {
+		size = render.DefaultHRISize
+	}
+	target := int(math.Round(size * float64(scale)))
+	band.pixel = max(1, (target+f.rows/2)/f.rows)
+	for band.pixel > 1 && f.textWidth(len(band.glyphs), band.pixel) > w {
 		band.pixel--
 	}
-	tw := textWidth(len(band.glyphs), band.pixel)
+	tw := f.textWidth(len(band.glyphs), band.pixel)
 	if tw > w {
 		return hriBand{}, false
 	}
@@ -285,7 +295,11 @@ func layoutHRI(c render.Canvas, w, h, scale int) (hriBand, bool) {
 	// Rows minus the quiet zone would be wrong the moment a frame or a caption
 	// band grows the canvas, and would drop the text on top of the frame.
 	barsBottom := c.SymbolRect().Max.Y * scale
-	needed := pad + fontRows*band.pixel + pad
+	// Reserve the height that was asked for even when the width shrank the
+	// font below it. Without this, a width-constrained code renders
+	// identically at hri_size 2 and 6 — an option accepted and then discarded,
+	// which is the failure this project keeps having to relearn.
+	needed := pad + max(f.rows*band.pixel, target) + pad
 
 	band.x = (w - tw) / 2
 	band.y = barsBottom + pad
@@ -293,18 +307,10 @@ func layoutHRI(c render.Canvas, w, h, scale int) (hriBand, bool) {
 	return band, true
 }
 
-// textWidth is the width of n glyphs, fontGap font pixels between them.
-func textWidth(n, pixel int) int {
-	if n == 0 {
-		return 0
-	}
-	return n*fontAdvance(pixel) - fontGap*pixel
-}
-
 // drawHRI paints the laid-out text onto the ink layer. The glyph drawing
 // itself lives in paint.go, shared with the caption band.
 func drawHRI(dst *image.NRGBA, b hriBand, c color.NRGBA) {
-	drawGlyphs(dst, b.glyphs, b.x, b.y, b.pixel, c)
+	drawGlyphs(dst, b.face, b.glyphs, b.x, b.y, b.pixel, c)
 }
 
 // Font cell size. Five by seven is the smallest cell in which every digit
@@ -322,25 +328,6 @@ const (
 	// is read precisely when the barcode would not scan.
 	fontGap = 2
 )
-
-// fontAdvance is the distance from one glyph's left edge to the next.
-//
-// Every place that lays out or measures a run of glyphs goes through this, so
-// the cell size and the gap cannot drift apart between measuring and drawing.
-func fontAdvance(pixel int) int { return (fontCols + fontGap) * pixel }
-
-// glyph returns the bitmap for a character, folding case and falling back to a
-// blank cell. Unknown characters advance without drawing rather than being
-// dropped, so the text stays aligned under the bars it describes.
-func glyph(r rune) [fontRows]uint8 {
-	if r >= 'a' && r <= 'z' {
-		r -= 'a' - 'A'
-	}
-	if g, ok := font5x7[r]; ok {
-		return g
-	}
-	return font5x7[' ']
-}
 
 // font5x7 is the embedded bitmap font: seven rows of five pixels per
 // character, most significant bit leftmost. It is read-only after init.

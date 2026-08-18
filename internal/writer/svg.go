@@ -78,10 +78,11 @@ func (svgWriter) Write(c render.Canvas, o OutputOpts) ([]byte, error) {
 	// two attributes, but width and height are still written in pixels: an
 	// <img src="...svg"> with no intrinsic size renders at 300x150 in every
 	// browser, and a code stretched to 2:1 does not scan.
-	viewRows := c.Rows
+	viewRows := float64(c.Rows)
 	if c.HRI != "" {
-		viewRows += hriBandModules
-		h += hriBandModules * scale
+		band := hriBandModules(c)
+		viewRows += band
+		h += int(math.Round(band * float64(scale)))
 	}
 
 	var b bytes.Buffer
@@ -94,8 +95,8 @@ func (svgWriter) Write(c render.Canvas, o OutputOpts) ([]byte, error) {
 	// looks correct on screen and fails to scan at small sizes.
 	fmt.Fprintf(&b,
 		`<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" `+
-			`viewBox="0 0 %d %d" shape-rendering="crispEdges">`+"\n",
-		w, h, c.Cols, viewRows)
+			`viewBox="0 0 %d %s" shape-rendering="crispEdges">`+"\n",
+		w, h, c.Cols, svgNum(viewRows))
 
 	// The gradient is declared before anything can reference it. SVG resolves
 	// a url() forward as well, but a <defs> at the top is what every editor and
@@ -105,8 +106,8 @@ func (svgWriter) Write(c render.Canvas, o OutputOpts) ([]byte, error) {
 	}
 
 	if c.Style.BG.A != 0 {
-		fmt.Fprintf(&b, `<rect width="%d" height="%d" %s/>`+"\n",
-			c.Cols, viewRows, svgFill(c.Style.BG))
+		fmt.Fprintf(&b, `<rect width="%d" height="%s" %s/>`+"\n",
+			c.Cols, svgNum(viewRows), svgFill(c.Style.BG))
 	}
 
 	// Frame, then code, then logo, then caption: painter's order, so a logo
@@ -337,11 +338,12 @@ func svgHRI(b *bytes.Buffer, c render.Canvas) error {
 		return nil
 	}
 
-	fmt.Fprintf(b, `<text x="%s" y="%s" font-family="monospace" font-size="%s" `+
+	fmt.Fprintf(b, `<text x="%s" y="%s" font-family="%s" font-size="%s" `+
 		`text-anchor="middle" %s>`,
 		svgNum(float64(c.Cols)/2),
-		svgNum(float64(c.Rows)+hriFontModules),
-		svgNum(hriFontModules),
+		svgNum(float64(c.Rows)+hriFontModules(c)),
+		svgFontFamily(c.Style.HRIFont),
+		svgNum(hriFontModules(c)),
 		svgFill(c.Style.FG))
 
 	if err := xml.EscapeText(b, []byte(c.HRI)); err != nil {

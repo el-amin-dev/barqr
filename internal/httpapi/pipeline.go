@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/el-amin-dev/barqr/internal/builder"
@@ -246,6 +247,30 @@ func (s *Server) style(ctx context.Context, req Request,
 	st.BarHeight = req.Style.BarHeight
 	if req.Style.HRI != nil {
 		st.HRI = *req.Style.HRI
+	}
+	// Both are validated here so the rejection names the field, and again in
+	// the renderer so a Go caller cannot smuggle a bad value past it.
+	if v := req.Style.HRISize; v != 0 {
+		if v < render.MinHRISize || v > render.MaxHRISize {
+			f := newFault(http.StatusBadRequest, CodeInvalidValue,
+				"hri size must be between %g and %g modules",
+				render.MinHRISize, render.MaxHRISize)
+			f.Field = "style.hri_size"
+			f.Got = strconv.FormatFloat(v, 'g', -1, 64)
+			return render.Style{}, f
+		}
+		st.HRISize = v
+	}
+	if v := req.Style.HRIFont; v != "" {
+		if !slices.Contains(render.HRIFonts(), v) {
+			f := newFault(http.StatusBadRequest, CodeInvalidValue,
+				"unknown hri font %q", v)
+			f.Field = "style.hri_font"
+			f.Expected = strings.Join(render.HRIFonts(), ", ")
+			f.Got = v
+			return render.Style{}, f
+		}
+		st.HRIFont = v
 	}
 
 	return st, nil

@@ -64,6 +64,10 @@ type StyleSection struct {
 	BarHeight int `json:"bar_height,omitempty"`
 	// HRI controls the human-readable text under a linear code. Nil means on.
 	HRI *bool `json:"hri,omitempty"`
+	// HRISize is the height of that text in modules. Zero means the default.
+	HRISize float64 `json:"hri_size,omitempty"`
+	// HRIFont is the type family for it: mono or sans. Empty means mono.
+	HRIFont string `json:"hri_font,omitempty"`
 	// Logo is a data URI or, when remote fetching is enabled, a URL.
 	Logo string `json:"logo,omitempty"`
 	// LogoScale is the logo's width as a fraction of the code, 0.05..0.35.
