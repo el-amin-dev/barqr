@@ -12,13 +12,14 @@ func init() { Register(mecardBuilder{}) }
 
 // MeCardPayload carries a compact contact card.
 type MeCardPayload struct {
-	FirstName string `json:"first_name"`
-	LastName  string `json:"last_name"`
-	Phone     string `json:"phone"`
-	Email     string `json:"email"`
-	URL       string `json:"url"`
-	Address   string `json:"address"`
-	Note      string `json:"note"`
+	FirstName   string `json:"first_name"`
+	LastName    string `json:"last_name"`
+	Phone       string `json:"phone"`
+	PhoneRegion string `json:"phone_region"`
+	Email       string `json:"email"`
+	URL         string `json:"url"`
+	Address     string `json:"address"`
+	Note        string `json:"note"`
 }
 
 // mecardBuilder emits NTT DoCoMo's MECARD.
@@ -40,6 +41,7 @@ func (mecardBuilder) Fields() []Field {
 		{Name: "last_name", Type: TypeString, Description: "family name", Example: "Lovelace"},
 		{Name: "first_name", Type: TypeString, Description: "given name", Example: "Ada"},
 		{Name: "phone", Type: TypeString, Description: "telephone", Example: "+44 20 7946 0958"},
+		phoneRegionField(),
 		{Name: "email", Type: TypeString, Description: "email address", Example: "ada@example.com"},
 		{Name: "url", Type: TypeString, Description: "web address", Example: "https://example.com"},
 		{
@@ -68,11 +70,16 @@ func (b mecardBuilder) Build(payload any) (string, error) {
 			ErrInvalidPayload, v["email"])
 	}
 	if v["phone"] != "" {
-		number, phoneErr := normalisePhone(v["phone"])
+		number, phoneErr := normalisePhoneRegion(v["phone"], v["phone_region"])
 		if phoneErr != nil {
 			return "", fmt.Errorf("phone: %w", phoneErr)
 		}
 		v["phone"] = number
+	} else if v["phone_region"] != "" {
+		// A region with nothing to apply it to is a mistake worth naming.
+		// Accepting it silently is how an option comes to mean nothing.
+		return "", fmt.Errorf("%w: phone_region is set but no phone number was given",
+			ErrInvalidPayload)
 	}
 	if v["url"] != "" {
 		link, urlErr := normaliseURL(v["url"], false)

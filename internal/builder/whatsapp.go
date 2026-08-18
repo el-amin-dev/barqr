@@ -12,8 +12,9 @@ func init() { Register(whatsappBuilder{}) }
 
 // WhatsAppPayload carries a WhatsApp click-to-chat link.
 type WhatsAppPayload struct {
-	Phone   string `json:"phone"`
-	Message string `json:"message"`
+	Phone       string `json:"phone"`
+	PhoneRegion string `json:"phone_region"`
+	Message     string `json:"message"`
 }
 
 // whatsappHost is the click-to-chat host. wa.me is the short form WhatsApp
@@ -35,6 +36,7 @@ func (whatsappBuilder) Fields() []Field {
 			Required:    true,
 			Example:     "+44 20 7946 0958",
 		},
+		phoneRegionField(),
 		{
 			Name:        "message",
 			Type:        TypeString,
@@ -55,13 +57,19 @@ func (b whatsappBuilder) Build(payload any) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	number, err := normalisePhone(raw)
+	region, err := str(m, "phone_region")
+	if err != nil {
+		return "", err
+	}
+	number, err := normalisePhoneRegion(raw, region)
 	if err != nil {
 		return "", err
 	}
 	// wa.me rejects a leading plus: the path segment is bare digits including
 	// the country code, and a national number without one simply fails to
-	// resolve for the person scanning it.
+	// resolve for the person scanning it. phone_region is how a caller holding
+	// a national number gets one; without it the number is passed through and
+	// the link will not resolve, which Describe reports.
 	number = strings.TrimPrefix(number, "+")
 
 	message, err := str(m, "message")

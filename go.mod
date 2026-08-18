@@ -9,6 +9,7 @@ require (
 	github.com/boombuler/barcode v1.1.0
 	github.com/go-chi/chi/v5 v5.3.1
 	github.com/makiuchi-d/gozxing v0.1.1
+	github.com/nyaruka/phonenumbers v1.8.1
 	github.com/prometheus/client_golang v1.24.1
 	golang.org/x/image v0.45.0
 )

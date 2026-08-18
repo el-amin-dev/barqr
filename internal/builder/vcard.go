@@ -12,20 +12,21 @@ func init() { Register(vcardBuilder{}) }
 
 // VCardPayload carries a contact card.
 type VCardPayload struct {
-	FirstName  string `json:"first_name"`
-	LastName   string `json:"last_name"`
-	Org        string `json:"org"`
-	Title      string `json:"title"`
-	Phone      string `json:"phone"`
-	Mobile     string `json:"mobile"`
-	Email      string `json:"email"`
-	URL        string `json:"url"`
-	Street     string `json:"street"`
-	City       string `json:"city"`
-	Region     string `json:"region"`
-	PostalCode string `json:"postal_code"`
-	Country    string `json:"country"`
-	Note       string `json:"note"`
+	FirstName   string `json:"first_name"`
+	LastName    string `json:"last_name"`
+	Org         string `json:"org"`
+	Title       string `json:"title"`
+	Phone       string `json:"phone"`
+	PhoneRegion string `json:"phone_region"`
+	Mobile      string `json:"mobile"`
+	Email       string `json:"email"`
+	URL         string `json:"url"`
+	Street      string `json:"street"`
+	City        string `json:"city"`
+	Region      string `json:"region"`
+	PostalCode  string `json:"postal_code"`
+	Country     string `json:"country"`
+	Note        string `json:"note"`
 }
 
 // crlf is the line separator every vCard and iCalendar line ends with. RFC
@@ -55,6 +56,7 @@ func (vcardBuilder) Fields() []Field {
 		{Name: "title", Type: TypeString, Description: "job title", Example: "Chief Engineer"},
 		{Name: "phone", Type: TypeString, Description: "work telephone", Example: "+44 20 7946 0958"},
 		{Name: "mobile", Type: TypeString, Description: "mobile telephone", Example: "+44 7700 900123"},
+		phoneRegionField(),
 		{Name: "email", Type: TypeString, Description: "email address", Example: "ada@example.com"},
 		{Name: "url", Type: TypeString, Description: "web address", Example: "https://example.com"},
 		{Name: "street", Type: TypeString, Description: "street address", Example: "12 Bishopsgate"},
@@ -87,15 +89,22 @@ func (b vcardBuilder) Build(payload any) (string, error) {
 		return "", fmt.Errorf("%w: %q is not an email address of the form name@example.com",
 			ErrInvalidPayload, v["email"])
 	}
+	// One region covers both numbers: a card describes one person in one
+	// place. A number that belongs elsewhere says so itself, by arriving in
+	// international form, which rule 2 of normalisePhoneRegion passes through.
 	for _, key := range []string{"phone", "mobile"} {
 		if v[key] == "" {
 			continue
 		}
-		number, phoneErr := normalisePhone(v[key])
+		number, phoneErr := normalisePhoneRegion(v[key], v["phone_region"])
 		if phoneErr != nil {
 			return "", fmt.Errorf("%s: %w", key, phoneErr)
 		}
 		v[key] = number
+	}
+	if v["phone"] == "" && v["mobile"] == "" && v["phone_region"] != "" {
+		return "", fmt.Errorf("%w: phone_region is set but no phone number was given",
+			ErrInvalidPayload)
 	}
 	if v["url"] != "" {
 		link, urlErr := normaliseURL(v["url"], false)
