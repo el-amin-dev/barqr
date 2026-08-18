@@ -105,11 +105,13 @@ guessing wrong produces a perfectly valid code containing the wrong thing.
 | `style.logo_padding` | `0` | Clear space around the logo, in modules. |
 | `style.frame` | — | `border` `rounded` `banner` `bubble` |
 | `style.frame_color` | the foreground | Frame colour. |
-| `style.frame_width` | renderer default | Frame thickness, in modules. |
+| `style.frame_width` | `2` | Frame thickness, in modules. |
 | `style.caption` | — | Text beneath the code. Implies a frame, since the caption band is part of one. |
 | `style.caption_color` | the foreground | Caption colour. |
 | `style.bar_height` | auto | Linear codes only, in modules. |
 | `style.hri` | `true` | Human-readable text under a linear code. |
+| `style.hri_size` | `2` | Height of that text, in modules. `1`–`8`. |
+| `style.hri_font` | `mono` | Type family for it: `mono` `sans`. Honoured by every format that draws text. |
 
 Colours accept `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`, or a name
 (`black` `white` `transparent` `red` `green` `blue` `yellow` `cyan` `magenta` `gray`).

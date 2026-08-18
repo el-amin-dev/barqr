@@ -361,3 +361,38 @@ func spelled(n int) string {
 	}
 	return strconv.Itoa(n)
 }
+
+// TestAPIDocumentsEveryDefault holds docs/API.md's Default column to the same
+// source the generated OpenAPI document uses.
+//
+// A user reported reading the spec, seeing style.hri typed only as a boolean,
+// assuming the default was off, and getting a caption. The spec now states
+// every default; this makes the markdown state the same ones, from the same
+// map, so the two cannot disagree with each other or with the code. What the
+// service does and what the documentation says is one fact, checked here.
+func TestAPIDocumentsEveryDefault(t *testing.T) {
+	t.Parallel()
+
+	doc := read(t, "docs/API.md")
+
+	cfg, _, err := config.Load([]string{"BARQR_AUTH_MODE=open"})
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+
+	for path, want := range httpapi.Defaults(cfg) {
+		// The Default cell of the row whose first cell is this field.
+		row := regexp.MustCompile(`(?m)^\| ` + regexp.QuoteMeta("`"+path+"`") + ` \| ([^|]*) \|`)
+		m := row.FindStringSubmatch(doc)
+		if m == nil {
+			t.Errorf("%s: no row in docs/API.md, but the code gives it a default", path)
+			continue
+		}
+
+		stated := strings.TrimSpace(m[1])
+		if !strings.Contains(stated, fmt.Sprintf("%v", want)) {
+			t.Errorf("%s: docs/API.md says the default is %q, the code applies %v",
+				path, stated, want)
+		}
+	}
+}

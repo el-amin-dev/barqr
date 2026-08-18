@@ -87,7 +87,7 @@ func (s *Server) openAPIPaths() map[string]any {
 			"get": map[string]any{
 				"summary":     "Render a QR code",
 				"description": "Every option is available as a dot-notation query parameter.",
-				"parameters":  queryParameters(),
+				"parameters":  s.queryParameters(),
 				"responses":   imageResponses,
 			},
 			"post": map[string]any{
@@ -101,7 +101,7 @@ func (s *Server) openAPIPaths() map[string]any {
 		"/v1/barcode/{symbology}": map[string]any{
 			"get": map[string]any{
 				"summary":    "Render any registered symbology",
-				"parameters": append(symbologyPathParam(), queryParameters()...),
+				"parameters": append(symbologyPathParam(), s.queryParameters()...),
 				"responses":  imageResponses,
 			},
 			"post": map[string]any{
@@ -115,7 +115,7 @@ func (s *Server) openAPIPaths() map[string]any {
 		"/v1/build/{type}": map[string]any{
 			"get": map[string]any{
 				"summary":    "Build a payload string without rendering",
-				"parameters": append(builderPathParam(), queryParameters()...),
+				"parameters": append(builderPathParam(), s.queryParameters()...),
 				"responses": map[string]any{
 					"200": map[string]any{"description": "the raw string that would be encoded"},
 					"400": errorResponse("the payload was rejected by the builder"),
@@ -197,9 +197,10 @@ func (s *Server) openAPIComponents() map[string]any {
 }
 
 // requestSchema describes the request body, with enums drawn from the live
-// registries so the document lists exactly what this build accepts.
+// registries so the document lists exactly what this build accepts, and
+// defaults stamped from the code that applies them.
 func (s *Server) requestSchema() map[string]any {
-	return map[string]any{
+	schema := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
 			"type": map[string]any{
@@ -244,11 +245,21 @@ func (s *Server) requestSchema() map[string]any {
 					"hri_font": map[string]any{
 						"type": "string", "enum": toAny(render.HRIFonts()),
 					},
-					"logo":       map[string]any{"type": "string", "description": "a data: URI"},
-					"logo_scale": map[string]any{"type": "number", "minimum": 0.05, "maximum": 0.35},
-					"excavate":   map[string]any{"type": "boolean"},
-					"caption":    map[string]any{"type": "string"},
-					"frame":      map[string]any{"type": "string"},
+					"logo":          map[string]any{"type": "string", "description": "a data: URI"},
+					"logo_scale":    map[string]any{"type": "number", "minimum": 0.05, "maximum": 0.35},
+					"excavate":      map[string]any{"type": "boolean"},
+					"logo_padding":  map[string]any{"type": "integer", "minimum": 0},
+					"caption":       map[string]any{"type": "string"},
+					"caption_color": colorSchema(),
+					"frame": map[string]any{
+						"type": "string", "enum": toAny(render.FrameKinds()),
+					},
+					"frame_width": map[string]any{"type": "integer", "minimum": 0},
+					"frame_color": colorSchema(),
+					"gradient": map[string]any{
+						"type":        "string",
+						"description": `for example "linear(45deg,#000,#00f)"`,
+					},
 				},
 			},
 			"output": map[string]any{
@@ -271,22 +282,33 @@ func (s *Server) requestSchema() map[string]any {
 			},
 		},
 	}
+
+	applyDefaults(schema, Defaults(s.cfg))
+	return schema
 }
 
 // queryParameters lists every dot-notation key as an OpenAPI parameter,
 // derived from the same reflection index the decoder uses.
-func queryParameters() []any {
+func (s *Server) queryParameters() []any {
 	keys := make([]string, 0, len(pathIndex))
 	for k := range pathIndex {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
 
+	defaults := Defaults(s.cfg)
 	out := make([]any, 0, len(keys)+1)
 	for _, k := range keys {
+		schema := map[string]any{"type": openAPIType(k)}
+		// The same map the body schema uses, so a caller reading the query
+		// parameter and a caller reading the body schema are told the same
+		// thing about the same field.
+		if v, has := defaults[k]; has {
+			schema["default"] = v
+		}
 		out = append(out, map[string]any{
 			"name": k, "in": "query", "required": false,
-			"schema": map[string]any{"type": openAPIType(k)},
+			"schema": schema,
 		})
 	}
 	out = append(out, map[string]any{
