@@ -139,7 +139,8 @@ func validateStyleExtras(s Style) error {
 // zero value usable. An explicit out-of-range size is refused, since silently
 // clamping it would be an option accepted and then ignored.
 func validateHRI(s Style) error {
-	if s.HRISize != 0 && (s.HRISize < MinHRISize || s.HRISize > MaxHRISize) {
+	// Stated positively so NaN is refused; see the note in httpapi's style().
+	if s.HRISize != 0 && !(s.HRISize >= MinHRISize && s.HRISize <= MaxHRISize) {
 		return fmt.Errorf("%w: hri size %g is outside %g..%g modules",
 			ErrInvalidStyle, s.HRISize, MinHRISize, MaxHRISize)
 	}

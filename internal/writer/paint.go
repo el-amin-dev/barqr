@@ -290,8 +290,8 @@ func fitCaption(f *bitmapFace, runes []rune, w, h, scale int) ([]glyphBits, int,
 //
 // The human-readable line and the caption share it so that the two pieces of
 // text a code can carry come out of one font at one set of metrics. The
-// advance comes from fontAdvance for the same reason: measuring and drawing
-// must not be able to disagree.
+// advance comes from the face for the same reason: measuring and drawing must
+// not be able to disagree.
 func drawGlyphs(dst *image.NRGBA, f *bitmapFace, glyphs []glyphBits, x, y, pixel int, ink color.NRGBA) {
 	for i, g := range glyphs {
 		originX := x + i*f.advance(pixel)

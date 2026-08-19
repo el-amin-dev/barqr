@@ -277,7 +277,9 @@ func TestEveryLinearStyleOptionChangesTheOutput(t *testing.T) {
 		{"bar height", url.Values{"style.bar_height": {"40"}}},
 	}
 
-	for _, format := range []string{"svg", "png"} {
+	// Four formats, three code paths: the rasteriser, the SVG emitter, and
+	// the shared vector page used by PDF and EPS.
+	for _, format := range []string{"svg", "png", "pdf", "eps"} {
 		for _, tt := range tests {
 			t.Run(format+"/"+tt.name, func(t *testing.T) {
 				t.Parallel()
@@ -310,6 +312,10 @@ func TestHRIOptionsAreRefusedNotIgnored(t *testing.T) {
 		{"unknown font", "style.hri_font=comic", "style.hri_font"},
 		{"size below the floor", "style.hri_size=0.3", "style.hri_size"},
 		{"size above the ceiling", "style.hri_size=99", "style.hri_size"},
+		// NaN compares false against both bounds, so a range check written the
+		// obvious way lets it through and the writers then disagree about it.
+		{"size is not a number", "style.hri_size=NaN", "style.hri_size"},
+		{"size is infinite", "style.hri_size=Inf", "style.hri_size"},
 	}
 
 	// Every output format must agree. A request that succeeded as SVG and

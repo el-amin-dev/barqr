@@ -251,7 +251,12 @@ func (s *Server) style(ctx context.Context, req Request,
 	// Both are validated here so the rejection names the field, and again in
 	// the renderer so a Go caller cannot smuggle a bad value past it.
 	if v := req.Style.HRISize; v != 0 {
-		if v < render.MinHRISize || v > render.MaxHRISize {
+		// Stated positively so that NaN falls into the reject branch. Written
+		// as `v < min || v > max` it does not: both comparisons are false for
+		// NaN, so it would be accepted here and then be read differently by
+		// the raster and vector writers — an option honoured inconsistently
+		// per output format, which is the failure this project keeps having.
+		if !(v >= render.MinHRISize && v <= render.MaxHRISize) {
 			f := newFault(http.StatusBadRequest, CodeInvalidValue,
 				"hri size must be between %g and %g modules",
 				render.MinHRISize, render.MaxHRISize)

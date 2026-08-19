@@ -113,6 +113,24 @@ guessing wrong produces a perfectly valid code containing the wrong thing.
 | `style.hri_size` | `2` | Height of that text, in modules. `1`–`8`. |
 | `style.hri_font` | `mono` | Type family for it: `mono` `sans`. Honoured by every format that draws text. |
 
+`hri_font` names a generic family, not a font. Each output format maps it to a
+real face it can actually draw — `monospace`/`sans-serif` in SVG, Courier and
+Helvetica in PDF and EPS, and two embedded bitmaps in the raster formats. There
+is deliberately no `serif`: it would be free on the vector paths and impossible
+in a bitmap cell this small, and a family one writer could not keep is worse
+than one fewer choice.
+
+Two consequences worth knowing. The **default PDF and EPS face changed from
+Helvetica to Courier** — a printed code's human-readable line is monospaced, and
+it is the only default the three paths agree on; set `hri_font=sans` to restore
+the previous look. And the raster `sans` face is X11 misc-fixed, which is itself
+monospaced, so `sans` changes the letterforms in PNG but not the spacing.
+
+`hri_size` is honoured exactly on the vector paths. The raster path draws whole
+font pixels, so it lands on the nearest achievable height, and when the text is
+too wide it shrinks the font while still reserving the height you asked for —
+the band grows, the glyphs do not. Raise `output.scale` if you want both.
+
 Colours accept `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`, or a name
 (`black` `white` `transparent` `red` `green` `blue` `yellow` `cyan` `magenta` `gray`).
 

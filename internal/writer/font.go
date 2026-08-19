@@ -179,6 +179,16 @@ var sansOverrides = map[rune][]string{
 }
 
 func faceFromBasic(name string, src *basicfont.Face, overrides map[rune][]string) *bitmapFace {
+	// A cell wider than eight columns would not fit the uint8 a row is packed
+	// into, and a shift past the width evaluates to zero rather than failing —
+	// the leftmost columns would simply vanish, identically in the conversion
+	// and in the drawing, so nothing would disagree and no test would catch it.
+	// Taller than glyphBits would panic mid-request instead. Refuse at init.
+	if src.Width > 8 || src.Height > maxGlyphRows {
+		panic(fmt.Sprintf("writer: face %s is %dx%d, over the %dx%d cell limit",
+			name, src.Width, src.Height, 8, maxGlyphRows))
+	}
+
 	f := &bitmapFace{
 		name:   name,
 		cols:   src.Width,
@@ -191,28 +201,34 @@ func faceFromBasic(name string, src *basicfont.Face, overrides map[rune][]string
 		if !ok {
 			continue
 		}
-		var g glyphBits
-		for y := dr.Min.Y; y < dr.Max.Y; y++ {
-			if y < 0 || y >= f.rows || y >= maxGlyphRows {
-				continue
-			}
-			for x := dr.Min.X; x < dr.Max.X; x++ {
-				if x < 0 || x >= f.cols || x >= 8 {
-					continue
-				}
-				_, _, _, a := mask.At(maskp.X+x-dr.Min.X, maskp.Y+y-dr.Min.Y).RGBA()
+		// Work in glyph-relative coordinates throughout. Reading the mask
+		// relatively while guarding and packing absolutely happens to agree
+		// only while this face's Left is zero; that is a field of a
+		// third-party table, and a shift in it would misplace every glyph
+		// uniformly — which a distance test cannot see.
+		for gy := 0; gy < dr.Dy() && gy < f.rows; gy++ {
+			for gx := 0; gx < dr.Dx() && gx < f.cols; gx++ {
+				_, _, _, a := mask.At(maskp.X+gx, maskp.Y+gy).RGBA()
 				if a >= 0x8000 {
-					g[y] |= 1 << uint(f.cols-1-x)
+					f.glyphs[r] = setBit(f.glyphs[r], f, gx, gy)
 				}
 			}
 		}
-		f.glyphs[r] = g
+		if _, drawn := f.glyphs[r]; !drawn {
+			f.glyphs[r] = glyphBits{} // a blank, e.g. the space
+		}
 	}
 
 	for r, rows := range overrides {
 		f.glyphs[r] = drawGlyph(f, r, rows)
 	}
 	return f
+}
+
+// setBit lights one pixel of a glyph cell.
+func setBit(g glyphBits, f *bitmapFace, x, y int) glyphBits {
+	g[y] |= 1 << uint(f.cols-1-x)
+	return g
 }
 
 // drawGlyph turns a hand-drawn cell into bits, panicking on a cell that is not
