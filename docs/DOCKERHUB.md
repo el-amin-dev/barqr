@@ -4,7 +4,7 @@
 
 *Gotenberg is to documents what barqr is to codes.*
 
-`18.5 MB` · `distroless` · `no shell` · `no CGO` · `runs as 65532` · `linux/amd64` · `linux/arm64`
+`21.2 MB` · `distroless` · `no shell` · `no CGO` · `runs as 65532` · `linux/amd64` · `linux/arm64`
 
 Maintained by **[Mohamed El Amin BOUCHAREB](https://github.com/el-amin-dev)** ·
 Source: **<https://github.com/el-amin-dev/barqr>** · Apache-2.0

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"math"
 
 	"github.com/el-amin-dev/barqr/internal/render"
 )
@@ -236,8 +237,10 @@ func findEyes(c *render.Canvas) []image.Point {
 
 // hriBand is the placement of the human-readable text under a linear code.
 type hriBand struct {
+	// face is the type family the glyphs came from, needed again to draw them.
+	face *bitmapFace
 	// glyphs are the resolved bitmaps, one per character.
-	glyphs [][fontRows]uint8
+	glyphs []glyphBits
 	// pixel is the size of one font pixel in image pixels.
 	pixel int
 	// x and y are the top-left corner of the text block.
@@ -261,19 +264,26 @@ func layoutHRI(c render.Canvas, w, h, scale int) (hriBand, bool) {
 		return hriBand{}, false
 	}
 
+	f := hriFace(c.Style.HRIFont)
 	runes := []rune(c.HRI)
-	band := hriBand{glyphs: make([][fontRows]uint8, 0, len(runes))}
+	band := hriBand{face: f, glyphs: make([]glyphBits, 0, len(runes))}
 	for _, r := range runes {
-		band.glyphs = append(band.glyphs, glyph(r))
+		band.glyphs = append(band.glyphs, f.glyph(r))
 	}
 
-	// Aim for text about two modules tall, the usual proportion on a printed
-	// linear code, then shrink until the whole string fits the image width.
-	band.pixel = max(1, (2*scale+fontRows/2)/fontRows)
-	for band.pixel > 1 && textWidth(len(band.glyphs), band.pixel) > w {
+	// Aim for the requested text height — two modules by default, the usual
+	// proportion on a printed linear code — then shrink until the whole string
+	// fits the image width.
+	size := c.Style.HRISize
+	if size <= 0 {
+		size = render.DefaultHRISize
+	}
+	target := int(math.Round(size * float64(scale)))
+	band.pixel = max(1, (target+f.rows/2)/f.rows)
+	for band.pixel > 1 && f.textWidth(len(band.glyphs), band.pixel) > w {
 		band.pixel--
 	}
-	tw := textWidth(len(band.glyphs), band.pixel)
+	tw := f.textWidth(len(band.glyphs), band.pixel)
 	if tw > w {
 		return hriBand{}, false
 	}
@@ -285,7 +295,11 @@ func layoutHRI(c render.Canvas, w, h, scale int) (hriBand, bool) {
 	// Rows minus the quiet zone would be wrong the moment a frame or a caption
 	// band grows the canvas, and would drop the text on top of the frame.
 	barsBottom := c.SymbolRect().Max.Y * scale
-	needed := pad + fontRows*band.pixel + pad
+	// Reserve the height that was asked for even when the width shrank the
+	// font below it. Without this, a width-constrained code renders
+	// identically at hri_size 2 and 6 — an option accepted and then discarded,
+	// which is the failure this project keeps having to relearn.
+	needed := pad + max(f.rows*band.pixel, target) + pad
 
 	band.x = (w - tw) / 2
 	band.y = barsBottom + pad
@@ -293,18 +307,10 @@ func layoutHRI(c render.Canvas, w, h, scale int) (hriBand, bool) {
 	return band, true
 }
 
-// textWidth is the width of n glyphs, one font pixel of gap between them.
-func textWidth(n, pixel int) int {
-	if n == 0 {
-		return 0
-	}
-	return n*(fontCols+1)*pixel - pixel
-}
-
 // drawHRI paints the laid-out text onto the ink layer. The glyph drawing
 // itself lives in paint.go, shared with the caption band.
 func drawHRI(dst *image.NRGBA, b hriBand, c color.NRGBA) {
-	drawGlyphs(dst, b.glyphs, b.x, b.y, b.pixel, c)
+	drawGlyphs(dst, b.face, b.glyphs, b.x, b.y, b.pixel, c)
 }
 
 // Font cell size. Five by seven is the smallest cell in which every digit
@@ -312,20 +318,16 @@ func drawHRI(dst *image.NRGBA, b hriBand, c color.NRGBA) {
 const (
 	fontCols = 5
 	fontRows = 7
-)
 
-// glyph returns the bitmap for a character, folding case and falling back to a
-// blank cell. Unknown characters advance without drawing rather than being
-// dropped, so the text stays aligned under the bars it describes.
-func glyph(r rune) [fontRows]uint8 {
-	if r >= 'a' && r <= 'z' {
-		r -= 'a' - 'A'
-	}
-	if g, ok := font5x7[r]; ok {
-		return g
-	}
-	return font5x7[' ']
-}
+	// fontGap is the blank space between adjacent glyph cells, in font pixels.
+	//
+	// One is too few. At pixel = 1 a single blank column is the first thing
+	// lost to print dot-gain or a soft scan, and glyphs whose outer columns
+	// are both lit — W, M, H — then read as one smear. That matters more here
+	// than it would elsewhere, because the HRI line is the fallback path: it
+	// is read precisely when the barcode would not scan.
+	fontGap = 2
+)
 
 // font5x7 is the embedded bitmap font: seven rows of five pixels per
 // character, most significant bit leftmost. It is read-only after init.
@@ -345,8 +347,8 @@ var font5x7 = map[rune][fontRows]uint8{
 	'/': {0b00001, 0b00010, 0b00010, 0b00100, 0b01000, 0b01000, 0b10000},
 	'+': {0b00000, 0b00100, 0b00100, 0b11111, 0b00100, 0b00100, 0b00000},
 	'%': {0b11000, 0b11001, 0b00010, 0b00100, 0b01000, 0b10011, 0b00011},
-	'0': {0b01110, 0b10001, 0b10011, 0b10101, 0b11001, 0b10001, 0b01110},
-	'1': {0b00100, 0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110},
+	'0': {0b01110, 0b10011, 0b10111, 0b10101, 0b11101, 0b11001, 0b01110},
+	'1': {0b00100, 0b01100, 0b10100, 0b00100, 0b00100, 0b00100, 0b11111},
 	'2': {0b01110, 0b10001, 0b00001, 0b00010, 0b00100, 0b01000, 0b11111},
 	'3': {0b11111, 0b00010, 0b00100, 0b00010, 0b00001, 0b10001, 0b01110},
 	'4': {0b00010, 0b00110, 0b01010, 0b10010, 0b11111, 0b00010, 0b00010},
@@ -356,23 +358,23 @@ var font5x7 = map[rune][fontRows]uint8{
 	'8': {0b01110, 0b10001, 0b10001, 0b01110, 0b10001, 0b10001, 0b01110},
 	'9': {0b01110, 0b10001, 0b10001, 0b01111, 0b00001, 0b00010, 0b01100},
 	'A': {0b01110, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001},
-	'B': {0b11110, 0b10001, 0b10001, 0b11110, 0b10001, 0b10001, 0b11110},
-	'C': {0b01110, 0b10001, 0b10000, 0b10000, 0b10000, 0b10001, 0b01110},
+	'B': {0b11100, 0b10010, 0b10010, 0b11100, 0b10010, 0b10010, 0b11100},
+	'C': {0b01111, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b01111},
 	'D': {0b11100, 0b10010, 0b10001, 0b10001, 0b10001, 0b10010, 0b11100},
 	'E': {0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b11111},
 	'F': {0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b10000},
-	'G': {0b01110, 0b10001, 0b10000, 0b10111, 0b10001, 0b10001, 0b01111},
+	'G': {0b00110, 0b01001, 0b10000, 0b10111, 0b10001, 0b01001, 0b00110},
 	'H': {0b10001, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001},
 	'I': {0b01110, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110},
 	'J': {0b00111, 0b00010, 0b00010, 0b00010, 0b00010, 0b10010, 0b01100},
 	'K': {0b10001, 0b10010, 0b10100, 0b11000, 0b10100, 0b10010, 0b10001},
 	'L': {0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b11111},
 	'M': {0b10001, 0b11011, 0b10101, 0b10101, 0b10001, 0b10001, 0b10001},
-	'N': {0b10001, 0b10001, 0b11001, 0b10101, 0b10011, 0b10001, 0b10001},
+	'N': {0b10001, 0b11001, 0b11001, 0b10101, 0b10011, 0b10011, 0b10001},
 	'O': {0b01110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110},
-	'P': {0b11110, 0b10001, 0b10001, 0b11110, 0b10000, 0b10000, 0b10000},
-	'Q': {0b01110, 0b10001, 0b10001, 0b10001, 0b10101, 0b10010, 0b01101},
-	'R': {0b11110, 0b10001, 0b10001, 0b11110, 0b10100, 0b10010, 0b10001},
+	'P': {0b11110, 0b10001, 0b10001, 0b10001, 0b11110, 0b10000, 0b10000},
+	'Q': {0b01110, 0b10001, 0b10001, 0b10101, 0b10011, 0b10010, 0b01101},
+	'R': {0b11110, 0b10001, 0b10001, 0b11110, 0b10110, 0b10011, 0b10001},
 	'S': {0b01111, 0b10000, 0b10000, 0b01110, 0b00001, 0b00001, 0b11110},
 	'T': {0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100},
 	'U': {0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110},

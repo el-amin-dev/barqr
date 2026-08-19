@@ -10,7 +10,7 @@
 [![CodeQL](https://github.com/el-amin-dev/barqr/actions/workflows/codeql.yml/badge.svg)](https://github.com/el-amin-dev/barqr/actions/workflows/codeql.yml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/el-amin-dev/barqr)](https://goreportcard.com/report/github.com/el-amin-dev/barqr)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-[![Image](https://img.shields.io/badge/image-18.5%20MB-brightgreen)](Dockerfile)
+[![Image](https://img.shields.io/badge/image-21.2%20MB-brightgreen)](Dockerfile)
 
 **15 symbologies · 18 payload builders · 12 output formats · 4 ms per code**
 
@@ -104,7 +104,7 @@ a rate limit and a privacy policy. barqr replaces all three with one endpoint.
 | **Drop-in microservice** | One container, one port, env-only config. Fits a compose file, a Nomad job, or a k8s Deployment without adapters. |
 | **curl-first** | Every option reachable as a query param *or* a JSON body field *or* a multipart form field — one decoder, three transports. |
 | **Deny by default** | Binds loopback, demands an API key, and refuses to boot if that combination would expose it. |
-| **Small** | 18.5 MB distroless image: no shell, no package manager, unprivileged user, read-only rootfs. |
+| **Small** | 21.2 MB distroless image: no shell, no package manager, unprivileged user, read-only rootfs. |
 
 Non-goals, on purpose: no accounts, no billing, no image editing, no "AI"
 anything. It renders codes.

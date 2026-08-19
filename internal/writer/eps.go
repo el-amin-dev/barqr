@@ -114,8 +114,8 @@ func epsText(b *bytes.Buffer, c render.Canvas, page vecPage) {
 	}
 
 	fmt.Fprintf(b, "%s setrgbcolor\n", vecRGB(vecOver(c.Style.FG, c.Style.BG)))
-	fmt.Fprintf(b, "/Helvetica findfont %s scalefont setfont\n",
-		vecNum(hriFontModules*page.Module))
+	fmt.Fprintf(b, "/%s findfont %s scalefont setfont\n",
+		vecFontName(c.Style.HRIFont), vecNum(hriFontModules(c)*page.Module))
 	fmt.Fprintf(b, "%s %s moveto\n", vecNum(page.W/2), vecNum(page.baseline(c)))
 	fmt.Fprintf(b, "%s dup stringwidth pop 2 div neg 0 rmoveto show\n", vecString(c.HRI))
 }

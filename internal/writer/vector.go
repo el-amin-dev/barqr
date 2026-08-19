@@ -45,7 +45,53 @@ func (p vecPage) rect(r vecRun) (x, y, w, h float64) {
 
 // baseline is the text baseline for the human-readable line, in points.
 func (p vecPage) baseline(c render.Canvas) float64 {
-	return p.H - (float64(c.Rows)+hriFontModules)*p.Module
+	return p.H - (float64(c.Rows)+hriFontModules(c))*p.Module
+}
+
+// Human-readable text metrics, derived from the style rather than fixed, so
+// that style.hri_size and style.hri_font mean the same thing on every output
+// format. A family that one writer honoured and another quietly ignored would
+// be an option accepted for SVG and dropped for PNG.
+
+// hriFontModules is the text height the style asks for, in module units.
+func hriFontModules(c render.Canvas) float64 {
+	if c.Style.HRISize > 0 {
+		return c.Style.HRISize
+	}
+	return render.DefaultHRISize
+}
+
+// hriBandModules is the space the band occupies: the text plus its clearance.
+func hriBandModules(c render.Canvas) float64 {
+	return hriFontModules(c) + hriBandPadModules
+}
+
+// svgFontFamily maps a family onto a CSS generic family, which is what lets
+// the viewer pick a real installed face rather than one barqr names and the
+// viewer does not have.
+func svgFontFamily(name string) string {
+	if name == render.HRIFontSans {
+		return "sans-serif"
+	}
+	return "monospace"
+}
+
+// vecFontName maps a family onto a base-14 PostScript face. Both are present
+// in every PDF viewer and PostScript interpreter, so neither has to be
+// embedded and the file stays the size it was.
+func vecFontName(name string) string {
+	if name == render.HRIFontSans {
+		return "Helvetica"
+	}
+	return "Courier"
+}
+
+// vecMeanWidth is the mean advance of that face, for centring.
+func vecMeanWidth(name string) float64 {
+	if name == render.HRIFontSans {
+		return pdfHelveticaWidth
+	}
+	return pdfCourierWidth
 }
 
 // vecPageSize resolves the physical page for a vector output.
@@ -82,7 +128,7 @@ func vecPageSize(c render.Canvas, o OutputOpts) (vecPage, error) {
 	module := width / float64(c.Cols)
 	rows := float64(c.Rows)
 	if c.HRI != "" {
-		rows += hriBandModules
+		rows += hriBandModules(c)
 	}
 	return vecPage{W: width, H: module * rows, Module: module}, nil
 }

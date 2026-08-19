@@ -80,7 +80,32 @@ type Style struct {
 	BarHeight int
 	// HRI controls whether human-readable text accompanies a linear code.
 	HRI bool
+	// HRISize is the height of that text in modules. Zero means
+	// DefaultHRISize, so a Style built in Go without it still renders.
+	HRISize float64
+	// HRIFont names the type family for it. Empty means HRIFontMono.
+	HRIFont string
 }
+
+// Human-readable text sizing and type families.
+//
+// The families are generic names rather than font names because every output
+// format has to be able to honour one: a name barqr cannot draw in raster
+// would be an option accepted for SVG and quietly dropped for PNG. There is
+// deliberately no serif family — it is free on the vector paths and impossible
+// in a bitmap cell this small, so offering it would be a promise one writer
+// could not keep.
+const (
+	DefaultHRISize = 2.0
+	MinHRISize     = 1.0
+	MaxHRISize     = 8.0
+
+	HRIFontMono = "mono"
+	HRIFontSans = "sans"
+)
+
+// HRIFonts lists the type families, sorted, for validation and discovery.
+func HRIFonts() []string { return []string{HRIFontMono, HRIFontSans} }
 
 // DefaultStyle is a plain black-on-white code with the symbology's own quiet
 // zone: the most scannable thing barqr can produce, and the baseline every
@@ -95,6 +120,8 @@ func DefaultStyle() Style {
 		QuietZone: -1,
 		BarHeight: 0,
 		HRI:       true,
+		HRISize:   DefaultHRISize,
+		HRIFont:   HRIFontMono,
 	}
 }
 

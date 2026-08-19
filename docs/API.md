@@ -105,11 +105,31 @@ guessing wrong produces a perfectly valid code containing the wrong thing.
 | `style.logo_padding` | `0` | Clear space around the logo, in modules. |
 | `style.frame` | — | `border` `rounded` `banner` `bubble` |
 | `style.frame_color` | the foreground | Frame colour. |
-| `style.frame_width` | renderer default | Frame thickness, in modules. |
+| `style.frame_width` | `2` | Frame thickness, in modules. |
 | `style.caption` | — | Text beneath the code. Implies a frame, since the caption band is part of one. |
 | `style.caption_color` | the foreground | Caption colour. |
 | `style.bar_height` | auto | Linear codes only, in modules. |
 | `style.hri` | `true` | Human-readable text under a linear code. |
+| `style.hri_size` | `2` | Height of that text, in modules. `1`–`8`. |
+| `style.hri_font` | `mono` | Type family for it: `mono` `sans`. Honoured by every format that draws text. |
+
+`hri_font` names a generic family, not a font. Each output format maps it to a
+real face it can actually draw — `monospace`/`sans-serif` in SVG, Courier and
+Helvetica in PDF and EPS, and two embedded bitmaps in the raster formats. There
+is deliberately no `serif`: it would be free on the vector paths and impossible
+in a bitmap cell this small, and a family one writer could not keep is worse
+than one fewer choice.
+
+Two consequences worth knowing. The **default PDF and EPS face changed from
+Helvetica to Courier** — a printed code's human-readable line is monospaced, and
+it is the only default the three paths agree on; set `hri_font=sans` to restore
+the previous look. And the raster `sans` face is X11 misc-fixed, which is itself
+monospaced, so `sans` changes the letterforms in PNG but not the spacing.
+
+`hri_size` is honoured exactly on the vector paths. The raster path draws whole
+font pixels, so it lands on the nearest achievable height, and when the text is
+too wide it shrinks the font while still reserving the height you asked for —
+the band grows, the glyphs do not. Raise `output.scale` if you want both.
 
 Colours accept `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`, or a name
 (`black` `white` `transparent` `red` `green` `blue` `yellow` `cyan` `magenta` `gray`).
@@ -306,6 +326,47 @@ curl 'localhost:3000/v1/build/wifi?payload.ssid=Lobby&payload.password=guest2026
 
 Every builder round-trips: `Parse(Build(payload))` returns an equal payload, asserted
 across the whole registry and fuzzed.
+
+### Phone numbers and E.164
+
+`tel`, `vcard`, `whatsapp` and `mecard` all accept `payload.phone_region`, an
+ISO 3166-1 alpha-2 country code. It exists because a national number carries no
+country, and nothing downstream can recover one.
+
+| Input | Result |
+|---|---|
+| `phone=+213664108852` | unchanged; `phone_region` is not consulted |
+| `phone=0664108852` `phone_region=DZ` | `+213664108852` |
+| `phone=0664108852` | **unchanged** |
+| `phone=0664108852` `phone_region=XX` | `400` — not a country code |
+| `phone=000` `phone_region=DZ` | `400` — not a valid number there |
+
+```bash
+curl -s "$BARQR/v1/build/vcard?payload.last_name=Diallo\
+&payload.phone=0664108852&payload.phone_region=DZ"
+# TEL;TYPE=WORK,VOICE:+213664108852
+```
+
+A number that already starts with `+` wins outright. The caller has said which
+country it is, and re-parsing it against a different region is how a correct
+number becomes a wrong one — so `phone_region` describes the numbers that do
+*not* say for themselves, which is why one region covers both of a vCard's.
+
+**A national number with no region is passed through unchanged.** That is
+deliberate, not an oversight. barqr cannot tell that such a number is wrong: a
+code printed for domestic use is legitimate, and short codes are national by
+definition. It also has no locale to guess from — no `Accept-Language`
+contract, no geo-IP — so any assumed region would turn a visibly local number
+into an invisibly wrong one, formatted plausibly and dialling the wrong
+country. Supplying `phone_region` is how a caller opts into strictness, and
+from then on an invalid number is refused rather than emitted.
+
+One consequence worth knowing: `wa.me` needs a country code. A `whatsapp` link
+built from a national number is syntactically fine and will resolve for nobody.
+Set `phone_region`, or give the number in `+` form.
+
+Note `vcard` keeps its own `payload.region` — the postal one, "Greater London".
+The phone field is `phone_region` precisely so the two cannot be confused.
 
 ### `location` — auto-detected places
 

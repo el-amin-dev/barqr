@@ -273,7 +273,7 @@ spec:
 
           # Startup gates the other two so that a slow start is never mistaken
           # for a wedge. Boot is under 100 ms, so 1s x 30 is enormous slack —
-          # deliberately, because the realistic delay is pulling a 18.5 MB image
+          # deliberately, because the realistic delay is pulling a 21.2 MB image
           # onto a cold node, not the program. The probe succeeds on the first
           # poll in the normal case, and liveness only begins after it does.
           startupProbe:

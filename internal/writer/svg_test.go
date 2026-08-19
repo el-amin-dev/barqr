@@ -295,12 +295,13 @@ func TestSVGHRIIsXMLEscaped(t *testing.T) {
 	if doc.Texts[0].Anchor != "middle" {
 		t.Errorf("text-anchor = %q, want middle", doc.Texts[0].Anchor)
 	}
-	if doc.Texts[0].Size != svgNum(hriFontModules) {
-		t.Errorf("font-size = %q, want %q", doc.Texts[0].Size, svgNum(hriFontModules))
+	if doc.Texts[0].Size != svgNum(hriFontModules(c)) {
+		t.Errorf("font-size = %q, want %q", doc.Texts[0].Size, svgNum(hriFontModules(c)))
 	}
 
 	// The band is added below the code, in both the viewBox and the pixel size.
-	if want := fmt.Sprintf("0 0 %d %d", c.Cols, c.Rows+hriBandModules); doc.ViewBox != want {
+	if want := fmt.Sprintf("0 0 %d %s", c.Cols,
+		svgNum(float64(c.Rows)+hriBandModules(c))); doc.ViewBox != want {
 		t.Errorf("viewBox = %q, want %q with room for the text", doc.ViewBox, want)
 	}
 }

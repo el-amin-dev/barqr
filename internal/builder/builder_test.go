@@ -389,3 +389,107 @@ func FuzzParse(f *testing.F) {
 		}
 	})
 }
+
+// phoneBuilders are the builders that carry a telephone number, and so share
+// normalisePhoneRegion and the phone_region field.
+func phoneBuilders() map[string]Builder {
+	return map[string]Builder{
+		Tel:      telBuilder{},
+		WhatsApp: whatsappBuilder{},
+		VCard:    vcardBuilder{},
+		MeCard:   mecardBuilder{},
+	}
+}
+
+// phonePayload is a minimal valid payload for a phone-carrying builder: the
+// number, plus whatever else that builder requires.
+func phonePayload(name, phone, region string) map[string]any {
+	m := map[string]any{"phone": phone}
+	if region != "" {
+		m["phone_region"] = region
+	}
+	switch name {
+	case VCard, MeCard:
+		m["last_name"] = "Example"
+	}
+	return m
+}
+
+// TestParseNeverReportsAPhoneRegion pins the resolution of the round-trip
+// problem that phone_region creates.
+//
+// Build turns a national number and a region into E.164; Parse sees only the
+// E.164 and cannot recover the pair. It must therefore not claim to — the same
+// reason vcard's Parse never recovers FN. Without this, someone helpfully
+// adding region recovery later would break Build(Parse(x)) == x in a way only
+// the fuzzer would find, and only sometimes.
+func TestParseNeverReportsAPhoneRegion(t *testing.T) {
+	t.Parallel()
+
+	for name, b := range phoneBuilders() {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			built, err := b.Build(phonePayload(name, "0664108852", "DZ"))
+			if err != nil {
+				t.Fatalf("Build: %v", err)
+			}
+
+			parsed, ok := b.Parse(built)
+			if !ok {
+				t.Fatalf("Parse(%q) did not recognise its own output", built)
+			}
+			m, ok := parsed.(map[string]any)
+			if !ok {
+				t.Fatalf("Parse returned %T, want map[string]any", parsed)
+			}
+			if v, present := m["phone_region"]; present {
+				t.Errorf("Parse reported phone_region=%v; the built string "+
+					"carries no region, so claiming one breaks the round trip", v)
+			}
+
+			// And the round trip itself still closes.
+			rebuilt, err := b.Build(m)
+			if err != nil {
+				t.Fatalf("rebuild: %v", err)
+			}
+			if rebuilt != built {
+				t.Errorf("rebuild = %q, want %q", rebuilt, built)
+			}
+		})
+	}
+}
+
+// TestPhoneRegionIsBackwardsCompatible is the compatibility promise as an
+// executable assertion: a caller who passes a national number and no region
+// gets exactly what v0.1.0 gave them.
+//
+// barqr cannot know that a national number is wrong — a code printed for
+// domestic use is legitimate, and short codes are national by definition — and
+// it has no locale from which to guess a region. Rejecting or defaulting would
+// turn a visibly local number into an invisibly wrong one. See ADR-017.
+func TestPhoneRegionIsBackwardsCompatible(t *testing.T) {
+	t.Parallel()
+
+	want := map[string]string{
+		Tel:      "tel:0664108852",
+		WhatsApp: "https://wa.me/0664108852",
+		MeCard:   "TEL:0664108852;",
+		VCard:    "TEL;TYPE=WORK,VOICE:0664108852",
+	}
+
+	for name, b := range phoneBuilders() {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := b.Build(phonePayload(name, "0664108852", ""))
+			if err != nil {
+				t.Fatalf("Build: %v", err)
+			}
+			if !strings.Contains(got, want[name]) {
+				t.Errorf("Build = %q, want it to contain %q — a national "+
+					"number with no region must be unchanged", got, want[name])
+			}
+		})
+	}
+}

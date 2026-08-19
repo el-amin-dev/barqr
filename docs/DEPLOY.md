@@ -1,6 +1,6 @@
 # Deployment
 
-barqr is a single stateless binary in an 18.5 MB distroless image. It needs a port and
+barqr is a single stateless binary in a 21.2 MB distroless image. It needs a port and
 some environment variables. It does not need a database, a volume, a sidecar, or a
 config file.
 

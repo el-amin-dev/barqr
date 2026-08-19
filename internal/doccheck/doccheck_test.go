@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -360,4 +361,71 @@ func spelled(n int) string {
 		return w
 	}
 	return strconv.Itoa(n)
+}
+
+// TestAPIDocumentsEveryDefault holds docs/API.md's Default column to the same
+// source the generated OpenAPI document uses.
+//
+// A user reported reading the spec, seeing style.hri typed only as a boolean,
+// assuming the default was off, and getting a caption. The spec now states
+// every default; this makes the markdown state the same ones, from the same
+// map, so the two cannot disagree with each other or with the code. What the
+// service does and what the documentation says is one fact, checked here.
+// TestTheImageSizeClaimIsConsistent holds the two published statements of the
+// image size to each other.
+//
+// It is hand-typed in several places and asserted by nothing, which is the same
+// duplicated-source-of-truth shape the defaults work exists to remove. This
+// cannot check the real image — that needs a build — but it can stop the two
+// documents disagreeing, which is how a stale number survives.
+func TestTheImageSizeClaimIsConsistent(t *testing.T) {
+	t.Parallel()
+
+	size := regexp.MustCompile(`(\d+\.\d+) MB`)
+
+	readme := size.FindStringSubmatch(read(t, "README.md"))
+	if readme == nil {
+		t.Fatal("README.md no longer states an image size")
+	}
+	hub := size.FindStringSubmatch(read(t, "docs/DOCKERHUB.md"))
+	if hub == nil {
+		t.Fatal("docs/DOCKERHUB.md no longer states an image size")
+	}
+	if readme[1] != hub[1] {
+		t.Errorf("README.md says the image is %s MB, docs/DOCKERHUB.md says %s MB",
+			readme[1], hub[1])
+	}
+}
+
+func TestAPIDocumentsEveryDefault(t *testing.T) {
+	t.Parallel()
+
+	doc := read(t, "docs/API.md")
+
+	cfg, _, err := config.Load([]string{"BARQR_AUTH_MODE=open"})
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+
+	for path, want := range httpapi.Defaults(cfg) {
+		// The Default cell of the row whose first cell is this field.
+		row := regexp.MustCompile(`(?m)^\| ` + regexp.QuoteMeta("`"+path+"`") + ` \| ([^|]*) \|`)
+		m := row.FindStringSubmatch(doc)
+		if m == nil {
+			t.Errorf("%s: no row in docs/API.md, but the code gives it a default", path)
+			continue
+		}
+
+		// Compare against the backticked tokens in the cell rather than by
+		// substring: a cell of `22` contains "2" and would satisfy a default
+		// of 2. Two rows legitimately name an environment variable alongside
+		// the value it defaults to — `BARQR_DEFAULT_ECC` (`M`) — which is why
+		// this matches any token in the cell rather than the whole cell.
+		stated := strings.TrimSpace(m[1])
+		want := fmt.Sprintf("%v", want)
+		if !slices.Contains(backticked.FindAllString(stated, -1), "`"+want+"`") {
+			t.Errorf("%s: docs/API.md states %q, the code applies %q",
+				path, stated, want)
+		}
+	}
 }

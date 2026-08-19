@@ -227,14 +227,19 @@ func paintTail(dst *image.NRGBA, r image.Rectangle, ink color.NRGBA) {
 func paintCaption(dst *image.NRGBA, spec captionSpec, scale int) {
 	box := moduleRect(spec.rect.Min.X, spec.rect.Min.Y, spec.rect.Dx(), spec.rect.Dy(), scale)
 
-	glyphs, pixel, ok := fitCaption([]rune(spec.text), box.Dx(), box.Dy(), scale)
+	// The caption stays on the default face whatever style.hri_font says: a
+	// caption is the operator's own words, not the code's human-readable
+	// line, and the two should not drift apart typographically.
+	f := faceMono
+
+	glyphs, pixel, ok := fitCaption(f, []rune(spec.text), box.Dx(), box.Dy(), scale)
 	if !ok {
 		return
 	}
 
-	x := box.Min.X + (box.Dx()-textWidth(len(glyphs), pixel))/2
-	y := box.Min.Y + (box.Dy()-fontRows*pixel)/2
-	drawGlyphs(dst, glyphs, x, y, pixel, spec.ink)
+	x := box.Min.X + (box.Dx()-f.textWidth(len(glyphs), pixel))/2
+	y := box.Min.Y + (box.Dy()-f.rows*pixel)/2
+	drawGlyphs(dst, f, glyphs, x, y, pixel, spec.ink)
 }
 
 // fitCaption resolves the caption into glyphs and a font-pixel size that fit
@@ -249,57 +254,53 @@ func paintCaption(dst *image.NRGBA, spec captionSpec, scale int) {
 // It reports false when the band cannot hold a single row of the font, which
 // only happens at about one pixel per module — the same threshold, and the same
 // answer, as layoutHRI.
-func fitCaption(runes []rune, w, h, scale int) ([][fontRows]uint8, int, bool) {
-	if len(runes) == 0 || w <= 0 || h < fontRows {
+func fitCaption(f *bitmapFace, runes []rune, w, h, scale int) ([]glyphBits, int, bool) {
+	if len(runes) == 0 || w <= 0 || h < f.rows {
 		return nil, 0, false
 	}
 
 	// Aim for the two-module text height a printed code uses for its
 	// human-readable line, then clamp to what the band actually has.
-	pixel := min(max(1, (2*scale+fontRows/2)/fontRows), h/fontRows)
-	for pixel > 1 && textWidth(len(runes), pixel) > w {
+	pixel := min(max(1, (2*scale+f.rows/2)/f.rows), h/f.rows)
+	for pixel > 1 && f.textWidth(len(runes), pixel) > w {
 		pixel--
 	}
 
 	fit := len(runes)
-	if textWidth(fit, pixel) > w {
-		if fit = maxGlyphs(w, pixel); fit <= 0 {
+	if f.textWidth(fit, pixel) > w {
+		if fit = f.maxGlyphs(w, pixel); fit <= 0 {
 			return nil, 0, false
 		}
 	}
 
-	out := make([][fontRows]uint8, 0, fit)
+	out := make([]glyphBits, 0, fit)
 	for _, r := range runes[:fit] {
-		out = append(out, glyph(r))
+		out = append(out, f.glyph(r))
 	}
 	if fit < len(runes) {
 		for i := max(0, fit-3); i < fit; i++ {
-			out[i] = glyph('.')
+			out[i] = f.glyph('.')
 		}
 	}
 	return out, pixel, true
 }
 
-// maxGlyphs is how many glyphs fit in w pixels at this font-pixel size.
-// textWidth(n, pixel) is pixel*((fontCols+1)*n - 1), so it inverts directly.
-func maxGlyphs(w, pixel int) int {
-	return (w/pixel + 1) / (fontCols + 1)
-}
-
 // drawGlyphs paints a run of bitmap glyphs with its top-left corner at (x, y),
-// one font pixel of gap between cells.
+// fontGap font pixels of gap between cells.
 //
 // The human-readable line and the caption share it so that the two pieces of
-// text a code can carry come out of one font at one set of metrics.
-func drawGlyphs(dst *image.NRGBA, glyphs [][fontRows]uint8, x, y, pixel int, ink color.NRGBA) {
+// text a code can carry come out of one font at one set of metrics. The
+// advance comes from the face for the same reason: measuring and drawing must
+// not be able to disagree.
+func drawGlyphs(dst *image.NRGBA, f *bitmapFace, glyphs []glyphBits, x, y, pixel int, ink color.NRGBA) {
 	for i, g := range glyphs {
-		originX := x + i*(fontCols+1)*pixel
-		for row := range fontRows {
+		originX := x + i*f.advance(pixel)
+		for row := range f.rows {
 			bits := g[row]
-			for col := range fontCols {
-				// Bit fontCols-1 is the leftmost column, which is what makes
-				// the binary literals in the font table look like the glyph.
-				if bits&(1<<(fontCols-1-col)) == 0 {
+			for col := range f.cols {
+				// Bit cols-1 is the leftmost column, which is what makes the
+				// binary literals in the font table look like the glyph.
+				if bits&(1<<(f.cols-1-col)) == 0 {
 					continue
 				}
 				px, py := originX+col*pixel, y+row*pixel

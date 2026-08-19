@@ -339,8 +339,8 @@ func TestPDFHRIIsEscaped(t *testing.T) {
 	if !bytes.Contains([]byte(stream), []byte(want)) {
 		t.Errorf("content stream does not contain the escaped string %q\ngot: %s", want, stream)
 	}
-	if !bytes.Contains(doc, []byte("/BaseFont /Helvetica")) {
-		t.Error("no Helvetica font object for the human-readable line")
+	if !bytes.Contains(doc, []byte("/BaseFont /Courier")) {
+		t.Error("no Courier font object for the human-readable line")
 	}
 	if !bytes.Contains([]byte(stream), []byte("BT\n")) {
 		t.Error("no text object in the content stream")
@@ -487,7 +487,7 @@ func TestVecPageSizeReservesTheHRIBand(t *testing.T) {
 	if withText.W != plain.W {
 		t.Errorf("width changed with an HRI: %v, want %v", withText.W, plain.W)
 	}
-	if want := plain.H + hriBandModules*plain.Module; math.Abs(withText.H-want) > 1e-9 {
+	if want := plain.H + hriBandModules(c)*plain.Module; math.Abs(withText.H-want) > 1e-9 {
 		t.Errorf("height with an HRI = %v, want %v", withText.H, want)
 	}
 	if got := withText.baseline(c); got <= 0 || got >= withText.H-float64(c.Rows)*withText.Module {
